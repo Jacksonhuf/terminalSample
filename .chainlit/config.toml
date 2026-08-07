@@ -1,0 +1,11 @@
+[project]
+# Chainlit UI configuration
+enable_telemetry = false
+
+[UI]
+name = "Ontology Agent"
+default_expand_messages = true
+hide_cot = false
+
+[meta]
+generated_by = "ontology-agent-platform"

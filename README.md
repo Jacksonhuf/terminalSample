@@ -78,6 +78,29 @@ ontology-admin --dir ./my_ontologies --port 8080
 
 在编辑器中修改后点击「保存」，会直接写入 YAML 文件，智能体下次加载时即生效。
 
+### Chainlit 对话界面（智能体前端）
+
+通过 Chainlit 与 Ontology 智能体对话，支持步骤展示和审批按钮：
+
+```bash
+pip install -e ".[chat]"
+chainlit run chainlit_app.py
+```
+
+浏览器打开 http://localhost:8000，可尝试：
+
+- `查询所有可用样机`
+- `SN-2024-001 归属哪个项目`
+- `预约 SN-2024-003`（会弹出批准/拒绝按钮）
+
+环境变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `ONTOLOGY_APP` | `prototype` | `prototype` 或 `demo` |
+| `ONTOLOGY_STORE_PATH` | — | SQLite 持久化路径 |
+| `ONTOLOGY_SEED` | `true` | 启动时注入示例数据 |
+
 ### 样机管理应用（第一个垂直应用）
 
 ```python

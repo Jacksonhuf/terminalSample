@@ -28,6 +28,9 @@ class ChatResult:
     interrupted: bool = False
     thread_id: str = "default"
     pending_action: dict[str, Any] = field(default_factory=dict)
+    intent: str = ""
+    plan: list[dict[str, Any]] = field(default_factory=list)
+    ontology_results: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AgentPlatform:
@@ -85,33 +88,44 @@ class AgentPlatform:
             "error": "",
         }
 
+    def _build_chat_result(
+        self,
+        result: dict,
+        snapshot,
+        thread_id: str,
+        *,
+        interrupted: bool | None = None,
+    ) -> ChatResult:
+        is_interrupted = interrupted if interrupted is not None else bool(snapshot.next)
+        values = snapshot.values or result
+        pending = values.get("pending_action", {}) or result.get("pending_action", {})
+
+        if is_interrupted:
+            action = pending.get("args", {}).get("action_name", "操作")
+            target = pending.get("args", {}).get("target_id", "")
+            response = (
+                f"⏸️ 操作「{action}」(目标: {target}) 需要审批。\n"
+                f"请批准或拒绝该操作。"
+            )
+        else:
+            response = result.get("final_response", "")
+
+        return ChatResult(
+            response=response,
+            interrupted=is_interrupted,
+            thread_id=thread_id,
+            pending_action=pending,
+            intent=values.get("intent", result.get("intent", "")),
+            plan=values.get("plan", result.get("plan", [])),
+            ontology_results=values.get("ontology_results", result.get("ontology_results", [])),
+        )
+
     def chat(self, message: str, thread_id: str | None = None) -> ChatResult:
         tid = thread_id or self.config.thread_id
         config = self._build_config(tid)
         result = self.graph.invoke(self._initial_state(message), config)
         snapshot = self.graph.get_state(config)
-        interrupted = bool(snapshot.next)
-        if interrupted:
-            values = snapshot.values or result
-            pending = values.get("pending_action", {})
-            action = pending.get("args", {}).get("action_name", "操作")
-            target = pending.get("args", {}).get("target_id", "")
-            response = (
-                f"⏸️ 操作「{action}」(目标: {target}) 需要审批。\n"
-                f"请调用 resume(approved=True) 批准，或 resume(approved=False) 拒绝。"
-            )
-            return ChatResult(
-                response=response,
-                interrupted=True,
-                thread_id=tid,
-                pending_action=pending,
-            )
-        return ChatResult(
-            response=result.get("final_response", ""),
-            interrupted=False,
-            thread_id=tid,
-            pending_action=result.get("pending_action", {}),
-        )
+        return self._build_chat_result(result, snapshot, tid)
 
     def resume(self, approved: bool = True, thread_id: str | None = None) -> ChatResult:
         """Resume an interrupted approval flow."""
@@ -119,13 +133,7 @@ class AgentPlatform:
         config = self._build_config(tid)
         result = self.graph.invoke(Command(resume=approved), config)
         snapshot = self.graph.get_state(config)
-        interrupted = bool(snapshot.next)
-        return ChatResult(
-            response=result.get("final_response", ""),
-            interrupted=interrupted,
-            thread_id=tid,
-            pending_action=result.get("pending_action", {}),
-        )
+        return self._build_chat_result(result, snapshot, tid)
 
     def get_service(self) -> OntologyService:
         return self.service
