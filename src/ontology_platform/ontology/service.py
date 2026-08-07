@@ -161,12 +161,6 @@ class OntologyService:
             )
 
         params = parameters or {}
-        for param in action_def.parameters:
-            if param.required and param.name not in params:
-                return ActionResult(
-                    success=False,
-                    message=f"Missing required parameter: {param.name}",
-                )
 
         if action_def.requires_approval and not approved:
             return ActionResult(
@@ -175,6 +169,13 @@ class OntologyService:
                 requires_approval=True,
                 data={"action": action_name, "target_id": target_id, "parameters": params},
             )
+
+        for param in action_def.parameters:
+            if param.required and param.name not in params:
+                return ActionResult(
+                    success=False,
+                    message=f"Missing required parameter: {param.name}",
+                )
 
         handler = self.registry.get_action_handler(self.ontology_name, action_name)
         if handler is None:

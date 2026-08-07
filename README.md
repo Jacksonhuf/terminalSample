@@ -49,12 +49,40 @@ pip install -e ".[dev]"
 ### 运行 Demo
 
 ```bash
-# 交互模式
-ontology-platform --seed
-
-# 单次查询
+# 平台 Demo（Person/Project）
 ontology-platform --seed --query "查询所有 Person"
+
+# 样机管理应用
+ontology-platform --app prototype --seed --query "查询所有可用样机"
 ```
+
+### 样机管理应用（第一个垂直应用）
+
+```python
+from ontology_platform import PrototypeApp
+
+app = PrototypeApp.create()
+app.seed()
+print(app.chat("查询 X100 型号样机"))
+print(app.chat("SN-2024-001 归属哪个项目"))
+print(app.chat("预约 SN-2024-003"))  # 触发审批提示
+```
+
+样机 Ontology 定义见 `examples/prototype_ontology.yaml`：
+
+| 对象 | 说明 |
+|------|------|
+| Prototype | 样机（序列号、型号、状态） |
+| Person | 人员 |
+| Project | 项目 |
+| Location | 库位 |
+
+| 动作 | 说明 |
+|------|------|
+| ReservePrototype | 预约（需审批） |
+| CheckoutPrototype | 领用（需审批） |
+| ReturnPrototype | 归还 |
+| RetirePrototype | 报废（需审批） |
 
 ### 定义自己的 Ontology
 
@@ -111,11 +139,15 @@ src/ontology_platform/
 │   ├── tools.py       # Ontology → LangChain Tools
 │   └── graph.py       # 图构建
 ├── platform.py        # 平台入口
+├── apps/
+│   └── prototype.py   # 样机管理应用
 └── cli.py             # 命令行工具
 examples/
-└── demo_ontology.yaml # 示例本体
+├── demo_ontology.yaml       # 平台 Demo
+└── prototype_ontology.yaml  # 样机管理 Ontology
 tests/
-└── test_platform.py
+├── test_platform.py
+└── test_prototype.py
 ```
 
 ## 扩展路线

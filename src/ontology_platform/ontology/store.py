@@ -84,6 +84,19 @@ class OntologyStore:
             results = [l for l in results if l.target_id == target_id]
         return results
 
+    def delete_links(
+        self,
+        link_type: str | None = None,
+        source_type: str | None = None,
+        source_id: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+    ) -> int:
+        to_remove = self.get_links(link_type, source_type, source_id, target_type, target_id)
+        for link in to_remove:
+            self._links.remove(link)
+        return len(to_remove)
+
     def clear(self) -> None:
         self._objects.clear()
         self._links.clear()

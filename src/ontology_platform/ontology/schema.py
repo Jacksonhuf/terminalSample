@@ -64,6 +64,7 @@ class ActionDef(BaseModel):
     target_type: str
     parameters: list[ActionParamDef] = Field(default_factory=list)
     requires_approval: bool = False
+    keywords: list[str] = Field(default_factory=list)
 
 
 class OntologyDef(BaseModel):

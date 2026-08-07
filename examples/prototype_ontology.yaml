@@ -1,0 +1,149 @@
+name: prototype
+version: "1.0"
+description: 样机管理领域本体
+
+object_types:
+  - name: Prototype
+    display_name: 样机
+    description: 物理样机设备
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+        description: 样机唯一标识
+      - name: serial_number
+        type: string
+        required: true
+        description: 序列号
+      - name: model
+        type: string
+        required: true
+        description: 型号
+      - name: status
+        type: enum
+        enum_values: [available, reserved, in_use, maintenance, retired]
+        required: true
+        description: 当前状态
+      - name: firmware_version
+        type: string
+        description: 固件版本
+
+  - name: Person
+    display_name: 人员
+    description: 组织成员
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: department
+        type: string
+
+  - name: Project
+    display_name: 项目
+    description: 研发项目
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: status
+        type: enum
+        enum_values: [active, completed, archived]
+
+  - name: Location
+    display_name: 库位
+    description: 存放位置
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: building
+        type: string
+
+links:
+  - name: belongs_to
+    source_type: Prototype
+    target_type: Project
+    cardinality: many
+    description: 样机归属项目
+
+  - name: custodian
+    source_type: Prototype
+    target_type: Person
+    cardinality: one
+    description: 当前保管人
+
+  - name: located_at
+    source_type: Prototype
+    target_type: Location
+    cardinality: one
+    description: 样机存放位置
+
+actions:
+  - name: ReservePrototype
+    display_name: 预约样机
+    description: 预约一台可用样机
+    target_type: Prototype
+    requires_approval: true
+    keywords: [预约, reserve, 预订]
+    parameters:
+      - name: person_id
+        type: string
+        required: true
+        description: 预约人 ID
+      - name: start_date
+        type: string
+        required: true
+        description: 开始日期 (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        required: true
+        description: 结束日期 (YYYY-MM-DD)
+
+  - name: CheckoutPrototype
+    display_name: 领用样机
+    description: 领用样机出库
+    target_type: Prototype
+    requires_approval: true
+    keywords: [领用, checkout, 借出, 领取]
+    parameters:
+      - name: person_id
+        type: string
+        required: true
+        description: 领用人 ID
+
+  - name: ReturnPrototype
+    display_name: 归还样机
+    description: 归还样机入库
+    target_type: Prototype
+    requires_approval: false
+    keywords: [归还, return, 还回]
+    parameters:
+      - name: condition
+        type: string
+        required: true
+        description: 归还状态 (good/damaged)
+
+  - name: RetirePrototype
+    display_name: 报废样机
+    description: 将样机标记为报废
+    target_type: Prototype
+    requires_approval: true
+    keywords: [报废, retire, 退役]
+    parameters:
+      - name: reason
+        type: string
+        required: true
+        description: 报废原因

@@ -19,21 +19,62 @@ def _last_user_message(state: AgentState) -> str:
     return ""
 
 
+def _extract_filters(text: str) -> dict[str, Any]:
+    """Extract property filters from natural language."""
+    filters: dict[str, Any] = {}
+    text_lower = text.lower()
+    if any(kw in text_lower for kw in ["可用", "available", "空闲"]):
+        filters["status"] = "available"
+    elif any(kw in text_lower for kw in ["使用中", "in_use", "在用"]):
+        filters["status"] = "in_use"
+    elif any(kw in text_lower for kw in ["维修", "maintenance"]):
+        filters["status"] = "maintenance"
+    elif any(kw in text_lower for kw in ["报废", "retired"]):
+        filters["status"] = "retired"
+    # 型号过滤 e.g. X100
+    model_match = re.search(r"\b(X\d{3})\b", text, re.IGNORECASE)
+    if model_match:
+        filters["model"] = model_match.group(1).upper()
+    return filters
+
+
 def _extract_entities(text: str, service: OntologyService) -> dict[str, Any]:
     """Rule-based entity extraction for the minimal platform."""
     entities: dict[str, Any] = {}
     text_lower = text.lower()
+    entities["filters"] = _extract_filters(text)
 
     for obj_type in service.ontology.object_types:
-        if obj_type.name.lower() in text_lower or obj_type.display_name.lower() in text_lower:
+        names = [obj_type.name.lower(), obj_type.display_name.lower()]
+        if any(n and n in text_lower for n in names):
             entities["object_type"] = obj_type.name
 
-    id_match = re.search(r"\b([A-Z]{2,}-\d{4}-\d{3,}|\w+-\d+)\b", text)
+    # 样机领域常用中文别名
+    type_aliases = {
+        "样机": "Prototype",
+        "原型机": "Prototype",
+        "设备": "Prototype",
+    }
+    for alias, type_name in type_aliases.items():
+        if alias in text and service.ontology.get_object_type(type_name):
+            entities["object_type"] = type_name
+
+    id_match = re.search(
+        r"\b(SN-\d{4}-\d{3}|[A-Z]{2,}-\d{4}-\d{3,}|\w+-\d+)\b",
+        text,
+        re.IGNORECASE,
+    )
     if id_match:
-        entities["object_id"] = id_match.group(1)
+        entities["object_id"] = id_match.group(1).upper()
+        if entities["object_id"].startswith("SN-") and service.ontology.get_object_type("Prototype"):
+            entities["object_type"] = "Prototype"
 
     for action in service.ontology.actions:
-        keywords = [action.name.lower(), action.display_name.lower()]
+        keywords = [
+            action.name.lower(),
+            action.display_name.lower(),
+            *[k.lower() for k in action.keywords],
+        ]
         if any(kw and kw in text_lower for kw in keywords):
             entities["action_name"] = action.name
 
@@ -51,8 +92,11 @@ def make_router_node(service: OntologyService):
         text = _last_user_message(state).lower()
         entities = _extract_entities(_last_user_message(state), service)
 
-        action_keywords = ["执行", "操作", "预约", "创建", "删除", "更新", "execute", "action", "reserve"]
-        traverse_keywords = ["关联", "关系", "链接", "属于", "link", "related", "traverse"]
+        action_keywords = [
+            "执行", "操作", "预约", "领用", "归还", "报废",
+            "创建", "删除", "更新", "execute", "action", "reserve", "checkout", "return",
+        ]
+        traverse_keywords = ["关联", "关系", "链接", "属于", "归属", "link", "related", "traverse"]
         query_keywords = ["查询", "搜索", "有哪些", "列出", "search", "query", "list", "find", "show"]
 
         if "action_name" in entities or any(kw in text for kw in action_keywords):
@@ -80,34 +124,43 @@ def make_planner_node(service: OntologyService):
         plan: list[dict[str, Any]] = []
 
         if intent == "query":
-            plan.append(
-                {
-                    "tool": "search_objects",
-                    "args": {
-                        "object_type": entities.get("object_type", service.ontology.object_types[0].name),
-                        "filters": {},
-                    },
-                }
-            )
+            filters = entities.get("filters", {})
+            object_type = entities.get("object_type", service.ontology.object_types[0].name)
             if "object_id" in entities:
                 plan = [
                     {
                         "tool": "get_object",
                         "args": {
-                            "object_type": entities.get("object_type", service.ontology.object_types[0].name),
+                            "object_type": object_type,
                             "object_id": entities["object_id"],
                         },
                     }
                 ]
+            else:
+                plan.append(
+                    {
+                        "tool": "search_objects",
+                        "args": {
+                            "object_type": object_type,
+                            "filters": filters,
+                        },
+                    }
+                )
 
         elif intent == "traverse":
+            object_type = entities.get("object_type", service.ontology.object_types[0].name)
+            link_type = entities.get("link_type")
+            if not link_type and object_type == "Prototype" and any(
+                kw in _last_user_message(state) for kw in ["项目", "归属", "属于"]
+            ):
+                link_type = "belongs_to"
             plan.append(
                 {
                     "tool": "traverse_links",
                     "args": {
-                        "object_type": entities.get("object_type", service.ontology.object_types[0].name),
+                        "object_type": object_type,
                         "object_id": entities.get("object_id", ""),
-                        "link_type": entities.get("link_type"),
+                        "link_type": link_type,
                         "direction": "outgoing",
                     },
                 }
@@ -218,8 +271,12 @@ def _format_results(state: AgentState) -> str:
                 lines.append(f"找到 {len(result)} 个对象：")
                 for obj in result[:10]:
                     props = obj.get("properties", {})
-                    name = props.get("name", props.get("id", obj.get("object_id", "?")))
-                    lines.append(f"  - [{obj['object_type']}] {name} (id={obj['object_id']})")
+                    label = props.get("serial_number") or props.get("name") or props.get("id", obj.get("object_id", "?"))
+                    status = props.get("status", "")
+                    model = props.get("model", "")
+                    extra_parts = [p for p in [f"model={model}" if model else "", f"status={status}" if status else ""] if p]
+                    extra = f", {', '.join(extra_parts)}" if extra_parts else ""
+                    lines.append(f"  - [{obj['object_type']}] {label} (id={obj['object_id']}{extra})")
 
         elif tool == "get_object" and isinstance(result, dict):
             if "error" in result:
