@@ -22,7 +22,7 @@
 │   RBAC 权限  |  Action 审计日志                              │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 1: 数据层                                              │
-│   Data Connector (Computer Use → SQL)  |  Ontology Store    │
+│   Data Connector (入站)  |  Channel Adapter (出站)  |  SQL   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -39,6 +39,7 @@
 | Workshop (应用 UI) | ontology-admin | ✅ |
 | Logic 可视化编辑器 | LangGraph Studio（调试） | ✅ 短期 |
 | Data Connection / Pipeline | Data Connector (Computer Use → SQL) | ✅ |
+| Notifications / Automate | Channel Adapter (Chat CLI / Email) + Outreach | ✅ |
 
 ---
 
@@ -212,7 +213,99 @@ mgr.sync_to_ontology("prototype_erp")
 
 ---
 
-## 6. 前端分工（模式 A）
+## 6. 出站集成：Channel Adapter（IM / 邮件 / 跟催）
+
+当 Action 需要与外部人员沟通（内部 IM、邮件跟催）时，通过 **Channel Adapter** 出站发送，不直接 shell 调用 CLI。
+
+### 与 Data Connector 的分工
+
+| 方向 | 模块 | 场景 |
+|------|------|------|
+| 入站 | Data Connector | 从 Web 界面采集数据 → Ontology |
+| 出站 | Channel Adapter | 从 Ontology Action → IM / 邮件 |
+
+### 数据流
+
+```
+Ontology Action  →  NotificationService  →  ChatCliAdapter / EmailAdapter
+        ↓                                        ↓
+  RBAC + 审计                             message_logs（发送记录）
+        ↓
+  ScheduleReminder  →  outreach_tasks  →  ontology-outreach run（定时 Worker）
+```
+
+### 样机应用 Action
+
+| Action | 通道 | 说明 |
+|--------|------|------|
+| `NotifyCustodian` | IM | 通知当前保管人 |
+| `SendChatMessage` | IM | 向指定人员发消息（需审批） |
+| `SendEmailReminder` | 邮件 | 立即跟催（需审批） |
+| `ScheduleReminder` | IM/邮件 | 预约定时跟催 |
+
+`ReservePrototype` 成功后会自动预约到期提醒邮件；`ReturnPrototype` 会取消该样机的 pending 跟催。
+
+### Person 联系字段
+
+在 Ontology 的 `Person` 上配置：
+
+- `im_user_id` — 内部 IM CLI 用户名
+- `email` — 工作邮箱
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `ONTOLOGY_CHAT_CLI` | `im-cli` | 内部 IM 可执行文件 |
+| `ONTOLOGY_CHAT_SEND_TEMPLATE` | `send --user {recipient} --text {body}` | 私聊命令模板 |
+| `ONTOLOGY_EMAIL_MODE` | `mock` | `smtp` / `cli` / `mock` |
+| `ONTOLOGY_MAIL_CLI` | `mail-cli` | 邮件 CLI（mode=cli 时） |
+| `ONTOLOGY_SMTP_HOST` | `localhost` | SMTP 主机 |
+
+### CLI
+
+```bash
+# 处理到期的跟催任务（可加入 cron）
+ontology-outreach run
+
+# 查看发送记录与待办任务
+ontology-outreach logs --object-type Prototype --object-id SN-2024-002
+ontology-outreach tasks --status pending
+```
+
+### Python API
+
+```python
+from ontology_platform.integrations import build_notification_service, process_due_tasks
+
+notification = build_notification_service(config)
+notification.send_now(
+    channel="chat",
+    template_id="notify_custodian",
+    person_ids=["P-001"],
+    context={"prototype_id": "SN-001", "person_name": "张三", ...},
+    service=ontology_service,
+)
+task_id = notification.schedule_reminder(
+    channel="email",
+    template_id="reminder",
+    person_ids=["P-001"],
+    context={...},
+    due_at="2026-08-10T09:00:00+00:00",
+)
+process_due_tasks(notification, ontology_service)
+```
+
+### SQL 表结构
+
+| 表 | 用途 |
+|----|------|
+| `message_logs` | 每次发送记录（成功/失败/拒绝） |
+| `outreach_tasks` | 定时跟催任务队列 |
+
+---
+
+## 7. 前端分工（模式 A）
 
 | 组件 | 端口 | 职责 |
 |------|------|------|
@@ -222,7 +315,7 @@ mgr.sync_to_ontology("prototype_erp")
 
 ---
 
-## 6. 后续演进
+## 8. 后续演进
 
 | 阶段 | 方向 |
 |------|------|

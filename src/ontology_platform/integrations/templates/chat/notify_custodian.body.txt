@@ -1,0 +1,7 @@
+您好 {{ person_name }}，
+
+样机 {{ prototype_id }}（型号 {{ model }}）需要您关注。
+当前状态：{{ status }}
+{{ extra_message }}
+
+请尽快处理。

@@ -42,6 +42,12 @@ object_types:
         required: true
       - name: department
         type: string
+      - name: email
+        type: string
+        description: 工作邮箱（邮件通知）
+      - name: im_user_id
+        type: string
+        description: 内部 IM 工号/用户名（聊天通知）
 
   - name: Project
     display_name: 项目
@@ -154,3 +160,81 @@ actions:
         type: string
         required: true
         description: 报废原因
+
+  - name: NotifyCustodian
+    display_name: 通知保管人
+    description: 通过内部 IM 通知样机当前保管人
+    target_type: Prototype
+    requires_approval: false
+    allowed_roles: [operator, admin]
+    keywords: [通知, 聊天, 保管人, notify]
+    parameters:
+      - name: extra_message
+        type: string
+        required: false
+        description: 附加说明
+
+  - name: SendChatMessage
+    display_name: 发送聊天消息
+    description: 就某样机向指定人员发送 IM 消息
+    target_type: Prototype
+    requires_approval: true
+    allowed_roles: [operator, admin]
+    approver_roles: [admin]
+    keywords: [发消息, 聊天, chat]
+    parameters:
+      - name: person_id
+        type: string
+        required: true
+        description: 接收人 Person ID
+      - name: message
+        type: string
+        required: true
+        description: 消息正文
+
+  - name: SendEmailReminder
+    display_name: 发送邮件跟催
+    description: 立即发送邮件跟催
+    target_type: Prototype
+    requires_approval: true
+    allowed_roles: [operator, admin]
+    approver_roles: [admin]
+    keywords: [邮件, 跟催, email, reminder]
+    parameters:
+      - name: person_id
+        type: string
+        required: true
+        description: 收件人 Person ID
+      - name: reason
+        type: string
+        required: true
+        description: 跟催事由
+      - name: due_date
+        type: string
+        required: false
+        description: 截止日期 (YYYY-MM-DD)
+
+  - name: ScheduleReminder
+    display_name: 预约跟催
+    description: 在指定时间发送跟催（邮件或 IM）
+    target_type: Prototype
+    requires_approval: false
+    allowed_roles: [operator, admin]
+    keywords: [预约跟催, 定时, schedule]
+    parameters:
+      - name: person_id
+        type: string
+        required: true
+        description: 收件人 Person ID
+      - name: channel
+        type: string
+        required: false
+        description: chat 或 email，默认 email
+      - name: reason
+        type: string
+        required: true
+        description: 跟催事由
+      - name: due_at
+        type: string
+        required: true
+        description: 发送时间 ISO8601 或 YYYY-MM-DD
