@@ -26,12 +26,31 @@ class CreateOntologyRequest(BaseModel):
     version: str = "1.0"
 
 
-def create_app(ontology_dir: str | Path | None = None, audit_path: str | Path | None = None) -> FastAPI:
+def create_app(
+    ontology_dir: str | Path | None = None,
+    audit_path: str | Path | None = None,
+    integrations_db_path: str | Path | None = None,
+    ontology_yaml_path: str | Path | None = None,
+    ontology_db_path: str | Path | None = None,
+) -> FastAPI:
     base_dir = Path(ontology_dir) if ontology_dir else Path(__file__).parent.parent.parent.parent / "examples"
     manager = OntologyManager(base_dir)
     from ontology_platform.governance.audit import AuditLogger
+    from ontology_platform.integrations.factory import build_notification_service
+    from ontology_platform.integrations.message_log import MessageLogStore
+    from ontology_platform.integrations.outreach.store import OutreachStore
+    from ontology_platform.integrations.outreach.worker import process_due_tasks
+    from ontology_platform.agent.config import AgentConfig
+    from ontology_platform.ontology.registry import OntologyRegistry
+    from ontology_platform.ontology.service import OntologyService
+    from ontology_platform.ontology.store.sqlite import SQLiteStore
 
     audit_logger = AuditLogger(audit_path) if audit_path else None
+    integrations_path = integrations_db_path or audit_path
+    message_log = MessageLogStore(integrations_path) if integrations_path else None
+    outreach_store = OutreachStore(integrations_path) if integrations_path else None
+    yaml_path = Path(ontology_yaml_path) if ontology_yaml_path else base_dir / "prototype_ontology.yaml"
+    obj_db_path = Path(ontology_db_path) if ontology_db_path else None
 
     app = FastAPI(
         title="Ontology Admin",
@@ -44,9 +63,67 @@ def create_app(ontology_dir: str | Path | None = None, audit_path: str | Path | 
     @app.get("/api/audit-logs")
     def audit_logs(action_name: str | None = None, user_id: str | None = None, limit: int = 100):
         if audit_logger is None:
-            return {"logs": [], "message": "未配置审计日志路径"}
+            return {"logs": [], "message": "未配置审计日志路径", "configured": False}
         logs = audit_logger.query(action_name=action_name, user_id=user_id, limit=limit)
-        return {"logs": [log.model_dump() for log in logs], "count": len(logs)}
+        return {"logs": [log.model_dump() for log in logs], "count": len(logs), "configured": True}
+
+    @app.get("/api/message-logs")
+    def message_logs(
+        object_type: str | None = None,
+        object_id: str | None = None,
+        limit: int = 100,
+    ):
+        if message_log is None:
+            return {"logs": [], "message": "未配置 integrations 数据库路径", "configured": False}
+        logs = message_log.query(object_type=object_type, object_id=object_id, limit=limit)
+        return {"logs": [log.model_dump() for log in logs], "count": len(logs), "configured": True}
+
+    @app.get("/api/outreach-tasks")
+    def outreach_tasks(
+        status: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        limit: int = 100,
+    ):
+        if outreach_store is None:
+            return {"tasks": [], "message": "未配置 integrations 数据库路径", "configured": False}
+        tasks = outreach_store.list_tasks(
+            status=status,
+            object_type=object_type,
+            object_id=object_id,
+            limit=limit,
+        )
+        return {
+            "tasks": [t.model_dump(mode="json") for t in tasks],
+            "count": len(tasks),
+            "configured": True,
+        }
+
+    @app.post("/api/outreach/run")
+    def run_outreach_worker():
+        if integrations_path is None:
+            raise HTTPException(400, "未配置 integrations 数据库路径")
+        if not yaml_path.exists():
+            raise HTTPException(400, f"Ontology YAML 不存在: {yaml_path}")
+        registry = OntologyRegistry.from_yaml(yaml_path)
+        ontology_name = registry.list_ontologies()[0]
+        db = obj_db_path or Path(integrations_path).parent / f"{ontology_name}.db"
+        config = AgentConfig(store_path=str(integrations_path), integrations_db_path=str(integrations_path))
+        notification = build_notification_service(config)
+        service = OntologyService(registry, ontology_name, store=SQLiteStore(str(db)))
+        result = process_due_tasks(notification, service)
+        return result
+
+    @app.get("/api/operations/status")
+    def operations_status():
+        return {
+            "audit_configured": audit_logger is not None,
+            "integrations_configured": integrations_path is not None,
+            "audit_path": str(audit_path) if audit_path else "",
+            "integrations_path": str(integrations_path) if integrations_path else "",
+            "ontology_yaml": str(yaml_path),
+            "ontology_db": str(obj_db_path or ""),
+        }
 
     @app.get("/api/ontologies")
     def list_ontologies():
@@ -176,6 +253,10 @@ def create_app(ontology_dir: str | Path | None = None, audit_path: str | Path | 
     @app.get("/visualize")
     def visualize_page():
         return FileResponse(STATIC_DIR / "visualize.html")
+
+    @app.get("/operations")
+    def operations_page():
+        return FileResponse(STATIC_DIR / "operations.html")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

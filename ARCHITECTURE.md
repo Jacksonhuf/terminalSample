@@ -309,9 +309,39 @@ process_due_tasks(notification, ontology_service)
 
 | 组件 | 端口 | 职责 |
 |------|------|------|
-| ontology-admin | 8080 | 本体 CRUD + 图谱可视化 |
-| Chainlit | 8000 | 智能体对话 + 审批按钮 |
+| ontology-admin | 8080 | 本体 CRUD + 图谱可视化 + **运营中心** |
+| Chainlit | 8000 | 智能体对话 + 审批按钮 + 用户身份 |
 | LangGraph Studio | 2024 | 编排调试（开发用） |
+
+### 运营中心（Operations Console）
+
+`http://localhost:8080/operations` — 需启动 admin 时配置数据路径：
+
+```bash
+ontology-admin --store-path ./data/platform.db --port 8080
+```
+
+| Tab | 内容 |
+|-----|------|
+| 审计日志 | Action 执行记录（RBAC 审计） |
+| 消息记录 | IM / 邮件发送日志 |
+| 跟催任务 | outreach_tasks 队列，支持手动触发 `执行到期跟催` |
+
+### Chainlit 身份对接
+
+| 变量 | 说明 |
+|------|------|
+| `ONTOLOGY_USER_ID` / `ONTOLOGY_USER_ROLES` | 无 Chainlit OAuth 时的 fallback |
+| `ONTOLOGY_ROLE_MAP` | `{"zhang":["admin"],"li":["operator"]}` 按用户 ID 前缀映射角色 |
+| Chainlit OAuth | 登录后从 `user.metadata.roles` 读取角色 |
+
+### Outreach 守护进程
+
+```bash
+ontology-outreach daemon --interval 60 --db ./data/integrations.db
+```
+
+等价于 cron 周期性执行 `ontology-outreach run`，适合常驻部署。
 
 ---
 
@@ -319,6 +349,6 @@ process_due_tasks(notification, ontology_service)
 
 | 阶段 | 方向 |
 |------|------|
-| 短期 | LangGraph Studio 调试、审计日志查询 UI |
-| 中期 | PostgreSQL、审批工作台、LDAP 用户集成 |
+| 短期 | PostgreSQL、真实 IM/邮件 CLI 联调 |
+| 中期 | 审批工作台、LDAP/SSO 用户集成 |
 | 长期 | 自研 Logic 可视化编辑器（类 AIP Logic UI） |

@@ -150,6 +150,64 @@ class TestAdminAPI:
         assert client.get("/").status_code == 200
         assert client.get("/editor").status_code == 200
         assert client.get("/visualize").status_code == 200
+        assert client.get("/operations").status_code == 200
+
+
+class TestOperationsAPI:
+    def test_operations_status_unconfigured(self, client):
+        res = client.get("/api/operations/status")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["audit_configured"] is False
+        assert data["integrations_configured"] is False
+
+    def test_audit_logs_unconfigured(self, client):
+        res = client.get("/api/audit-logs")
+        assert res.status_code == 200
+        assert res.json()["configured"] is False
+
+    def test_message_logs_and_outreach(self, temp_dir, sample_ontology):
+        from datetime import datetime, timezone
+
+        from ontology_platform.integrations.message_log import MessageLogStore
+        from ontology_platform.integrations.outreach.store import OutreachStore
+        from ontology_platform.integrations.schema import ChannelType
+
+        db_path = temp_dir / "ops.db"
+        mgr = OntologyManager(temp_dir)
+        mgr.save(sample_ontology)
+        app = create_app(temp_dir, audit_path=db_path, integrations_db_path=db_path)
+        client = TestClient(app)
+
+        MessageLogStore(db_path).append(
+            channel="chat",
+            template_id="notify_custodian",
+            recipients=["zhangsan"],
+            subject="test",
+            body="hello",
+            status="sent",
+            object_type="Prototype",
+            object_id="SN-001",
+        )
+        OutreachStore(db_path).create_task(
+            channel=ChannelType.EMAIL,
+            template_id="reminder",
+            recipients=["P-001"],
+            due_at=datetime.now(timezone.utc).isoformat(),
+            object_type="Prototype",
+            object_id="SN-001",
+        )
+
+        msg_res = client.get("/api/message-logs")
+        assert msg_res.status_code == 200
+        assert msg_res.json()["count"] == 1
+
+        task_res = client.get("/api/outreach-tasks?status=pending")
+        assert task_res.status_code == 200
+        assert task_res.json()["count"] == 1
+
+        status_res = client.get("/api/operations/status")
+        assert status_res.json()["integrations_configured"] is True
 
 class TestExamplesIntegration:
     def test_examples_loadable(self):
