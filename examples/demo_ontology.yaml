@@ -1,0 +1,52 @@
+name: demo
+version: "1.0"
+description: Minimal demo ontology for the agent platform
+
+object_types:
+  - name: Person
+    display_name: 人员
+    description: Organization member
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: department
+        type: string
+
+  - name: Project
+    display_name: 项目
+    description: A project
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: status
+        type: enum
+        enum_values: [active, completed, archived]
+
+links:
+  - name: works_on
+    source_type: Person
+    target_type: Project
+    cardinality: many
+    description: Person works on a Project
+
+actions:
+  - name: AssignToProject
+    display_name: 分配到项目
+    description: Assign a person to a project
+    target_type: Person
+    requires_approval: true
+    parameters:
+      - name: project_id
+        type: string
+        required: true
+        description: Target project ID
