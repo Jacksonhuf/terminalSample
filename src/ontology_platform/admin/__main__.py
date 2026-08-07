@@ -51,6 +51,12 @@ def main() -> None:
         default="",
         help="Ontology object SQLite for outreach worker",
     )
+    parser.add_argument(
+        "--database-url",
+        type=str,
+        default="",
+        help="PostgreSQL URL for ontology store (e.g. postgresql://user:pass@localhost/db)",
+    )
     args = parser.parse_args()
 
     store_path = args.store_path or None
@@ -58,6 +64,7 @@ def main() -> None:
     integrations_db = args.integrations_db or store_path
     ontology_yaml = args.ontology_yaml or None
     ontology_db = args.ontology_db or None
+    database_url = args.database_url or None
 
     app = create_app(
         args.dir,
@@ -65,6 +72,8 @@ def main() -> None:
         integrations_db_path=integrations_db,
         ontology_yaml_path=ontology_yaml,
         ontology_db_path=ontology_db,
+        store_path=store_path,
+        database_url=database_url,
     )
     print(f"\n  Ontology Admin UI: http://localhost:{args.port}")
     print(f"  Ontology directory: {args.dir}")

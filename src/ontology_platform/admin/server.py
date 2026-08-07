@@ -26,15 +26,24 @@ class CreateOntologyRequest(BaseModel):
     version: str = "1.0"
 
 
+class ResolveApprovalRequest(BaseModel):
+    approved: bool = True
+    resolver_id: str = "admin"
+    resolver_roles: list[str] = Field(default_factory=lambda: ["admin"])
+
+
 def create_app(
     ontology_dir: str | Path | None = None,
     audit_path: str | Path | None = None,
     integrations_db_path: str | Path | None = None,
     ontology_yaml_path: str | Path | None = None,
     ontology_db_path: str | Path | None = None,
+    store_path: str | Path | None = None,
+    database_url: str | None = None,
 ) -> FastAPI:
     base_dir = Path(ontology_dir) if ontology_dir else Path(__file__).parent.parent.parent.parent / "examples"
     manager = OntologyManager(base_dir)
+    from ontology_platform.governance.approval_store import ApprovalStore
     from ontology_platform.governance.audit import AuditLogger
     from ontology_platform.integrations.factory import build_notification_service
     from ontology_platform.integrations.message_log import MessageLogStore
@@ -44,13 +53,28 @@ def create_app(
     from ontology_platform.ontology.registry import OntologyRegistry
     from ontology_platform.ontology.service import OntologyService
     from ontology_platform.ontology.store.sqlite import SQLiteStore
+    from ontology_platform.runtime import build_runtime_platform
 
-    audit_logger = AuditLogger(audit_path) if audit_path else None
-    integrations_path = integrations_db_path or audit_path
+    resolved_store_path = store_path or audit_path
+    audit_logger = AuditLogger(resolved_store_path) if resolved_store_path else None
+    approval_store = ApprovalStore(resolved_store_path) if resolved_store_path else None
+    integrations_path = integrations_db_path or resolved_store_path
     message_log = MessageLogStore(integrations_path) if integrations_path else None
     outreach_store = OutreachStore(integrations_path) if integrations_path else None
     yaml_path = Path(ontology_yaml_path) if ontology_yaml_path else base_dir / "prototype_ontology.yaml"
     obj_db_path = Path(ontology_db_path) if ontology_db_path else None
+    runtime_platform = {"instance": None}
+
+    def _get_runtime_platform():
+        if runtime_platform["instance"] is None and yaml_path.exists() and (resolved_store_path or database_url):
+            runtime_platform["instance"] = build_runtime_platform(
+                ontology_yaml=yaml_path,
+                store_path=resolved_store_path,
+                database_url=database_url,
+                audit_path=resolved_store_path,
+                integrations_db_path=integrations_path,
+            )
+        return runtime_platform["instance"]
 
     app = FastAPI(
         title="Ontology Admin",
@@ -119,10 +143,65 @@ def create_app(
         return {
             "audit_configured": audit_logger is not None,
             "integrations_configured": integrations_path is not None,
-            "audit_path": str(audit_path) if audit_path else "",
+            "approvals_configured": approval_store is not None,
+            "runtime_configured": bool(resolved_store_path or database_url),
+            "audit_path": str(resolved_store_path) if resolved_store_path else "",
             "integrations_path": str(integrations_path) if integrations_path else "",
+            "database_url": database_url or "",
             "ontology_yaml": str(yaml_path),
             "ontology_db": str(obj_db_path or ""),
+        }
+
+    @app.get("/api/approvals")
+    def list_approvals(status: str | None = None, limit: int = 100):
+        if approval_store is None:
+            return {"requests": [], "message": "未配置审批存储路径", "configured": False}
+        requests = approval_store.list_requests(status=status, limit=limit)
+        return {
+            "requests": [r.model_dump() for r in requests],
+            "count": len(requests),
+            "configured": True,
+        }
+
+    @app.post("/api/approvals/{request_id}/resolve")
+    def resolve_approval(request_id: str, body: ResolveApprovalRequest):
+        if approval_store is None:
+            raise HTTPException(400, "未配置审批存储路径")
+        request = approval_store.get(request_id)
+        if request is None:
+            raise HTTPException(404, f"Approval request not found: {request_id}")
+        if request.status != "pending":
+            raise HTTPException(400, f"Approval request already {request.status}")
+
+        platform = _get_runtime_platform()
+        if platform is None:
+            raise HTTPException(400, "未配置运行时平台（需要 store-path 或 database-url）")
+
+        snapshot = platform.graph.get_state({"configurable": {"thread_id": request.thread_id}})
+        if not snapshot.next:
+            approval_store.resolve(
+                request_id,
+                approved=body.approved,
+                resolver_id=body.resolver_id,
+                resolver_roles=body.resolver_roles,
+            )
+            return {
+                "message": "审批记录已更新（无活动 interrupt，可能已在其他入口处理）",
+                "request_id": request_id,
+                "status": "approved" if body.approved else "rejected",
+            }
+
+        result = platform.resume(
+            approved=body.approved,
+            thread_id=request.thread_id,
+            user_id=body.resolver_id,
+            roles=body.resolver_roles,
+        )
+        return {
+            "request_id": request_id,
+            "status": "approved" if body.approved else "rejected",
+            "response": result.response,
+            "interrupted": result.interrupted,
         }
 
     @app.get("/api/ontologies")

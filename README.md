@@ -163,6 +163,26 @@ print(app.chat("预约 SN-2024-003"))
 
 详见 `examples/prototype_ontology.yaml`（Prototype / Person / Project / Location + 8 个动作，含 IM/邮件通知）。
 
+### PostgreSQL 持久化
+
+```bash
+export ONTOLOGY_DATABASE_URL=postgresql://user:pass@localhost:5432/ontology
+ontology-platform --app prototype --database-url "$ONTOLOGY_DATABASE_URL" --seed
+```
+
+`AgentConfig` 支持 `store_backend=postgres` 或 `auto`（检测 `database_url`）。安装：`pip install -e ".[postgres]"`。
+
+LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`，安装：`pip install -e ".[checkpoint]"`。
+
+### 审批工作台
+
+运营中心「审批工作台」Tab 可查看 pending 审批，并直接批准/拒绝（需配置 `--store-path` 以共享运行时 checkpoint）：
+
+```bash
+ontology-admin --store-path ./data/platform.db --port 8080
+# http://localhost:8080/operations → 审批工作台
+```
+
 ### Outbound Channels（IM / 邮件 / 跟催）
 
 通过 Ontology Action 触发内部 IM 或邮件通知，支持定时跟催：
@@ -247,7 +267,9 @@ pytest   # 含 connector 测试
 - [x] 审计日志 / 消息 / 跟催 admin 运营中心
 - [x] outreach 守护进程 (`ontology-outreach daemon`)
 - [x] Chainlit 用户身份与 RBAC 对接（含角色映射）
-- [ ] PostgreSQL / Neo4j 持久化
+- [x] PostgreSQL 持久化（Ontology Store）
+- [x] 审批工作台（admin 运营中心）
+- [ ] Neo4j 图库持久化
 - [ ] LDAP / SSO 用户集成
 - [ ] 自研 Logic 可视化编辑器（长期）
 - [x] LLM Planner

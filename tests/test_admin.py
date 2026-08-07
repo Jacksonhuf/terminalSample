@@ -209,6 +209,32 @@ class TestOperationsAPI:
         status_res = client.get("/api/operations/status")
         assert status_res.json()["integrations_configured"] is True
 
+
+class TestApprovalsAPI:
+    def test_approvals_unconfigured(self, client):
+        res = client.get("/api/approvals")
+        assert res.status_code == 200
+        assert res.json()["configured"] is False
+
+    def test_approvals_list(self, temp_dir, sample_ontology):
+        from ontology_platform.governance.approval_store import ApprovalStore
+
+        db_path = temp_dir / "ops.db"
+        mgr = OntologyManager(temp_dir)
+        mgr.save(sample_ontology)
+        app = create_app(temp_dir, store_path=db_path)
+        client = TestClient(app)
+
+        ApprovalStore(db_path).create_pending(
+            thread_id="t-1",
+            action_name="ReservePrototype",
+            target_id="SN-001",
+            requester_id="alice",
+        )
+        res = client.get("/api/approvals?status=pending")
+        assert res.status_code == 200
+        assert res.json()["count"] == 1
+
 class TestExamplesIntegration:
     def test_examples_loadable(self):
         app = create_app(EXAMPLES_DIR)

@@ -305,7 +305,38 @@ process_due_tasks(notification, ontology_service)
 
 ---
 
-## 7. 前端分工（模式 A）
+## 8. PostgreSQL 持久化
+
+Ontology 对象与关系可存入 PostgreSQL（与 SQLite 接口一致）：
+
+```python
+from ontology_platform.agent.config import AgentConfig
+from ontology_platform.ontology.store import create_store
+
+config = AgentConfig(
+    database_url="postgresql://user:pass@localhost/ontology",
+    store_backend="postgres",
+)
+store = create_store(config)
+```
+
+环境变量示例：`ONTOLOGY_DATABASE_URL=postgresql://...`
+
+审批 interrupt 状态通过 `langgraph-checkpoint-sqlite` 存入 `{store}.checkpoints.db`，使 admin 审批工作台与 Chainlit 可共享会话。
+
+---
+
+## 9. 审批工作台
+
+运营中心 `/operations` → **审批工作台**：
+
+- 列出 `approval_requests`（pending / approved / rejected）
+- 管理员可批准或拒绝，触发 `AgentPlatform.resume()`
+- 需 `ontology-admin --store-path` 配置与运行时相同的存储
+
+---
+
+## 10. 前端分工（模式 A）
 
 | 组件 | 端口 | 职责 |
 |------|------|------|
@@ -345,10 +376,10 @@ ontology-outreach daemon --interval 60 --db ./data/integrations.db
 
 ---
 
-## 8. 后续演进
+## 11. 后续演进
 
 | 阶段 | 方向 |
 |------|------|
-| 短期 | PostgreSQL、真实 IM/邮件 CLI 联调 |
-| 中期 | 审批工作台、LDAP/SSO 用户集成 |
+| 短期 | 真实 IM/邮件 CLI 联调、LDAP/SSO |
+| 中期 | 审批工作台增强、Connector API 模式 |
 | 长期 | 自研 Logic 可视化编辑器（类 AIP Logic UI） |

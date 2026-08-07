@@ -30,6 +30,7 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="audit" onclick="switchTab('audit')">审计日志</button>
+      <button class="tab" data-tab="approvals" onclick="switchTab('approvals')">审批工作台</button>
       <button class="tab" data-tab="messages" onclick="switchTab('messages')">消息记录</button>
       <button class="tab" data-tab="outreach" onclick="switchTab('outreach')">跟催任务</button>
     </div>
@@ -41,6 +42,19 @@
         <button class="btn btn-secondary btn-sm" onclick="loadAuditLogs()">查询</button>
       </div>
       <div class="table-wrap" id="audit-table"></div>
+    </div>
+
+    <div id="panel-approvals" class="tab-panel">
+      <div class="filter-bar">
+        <select id="approval-status">
+          <option value="pending">pending</option>
+          <option value="">全部状态</option>
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="loadApprovals()">查询</button>
+      </div>
+      <div class="table-wrap" id="approvals-table"></div>
     </div>
 
     <div id="panel-messages" class="tab-panel">
@@ -79,6 +93,7 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('panel-' + name).classList.add('active');
       if (name === 'audit') loadAuditLogs();
+      if (name === 'approvals') loadApprovals();
       if (name === 'messages') loadMessageLogs();
       if (name === 'outreach') loadOutreachTasks();
     }
@@ -109,7 +124,9 @@
         const status = await api('/operations/status');
         const parts = [];
         parts.push(status.audit_configured ? '审计: 已配置' : '审计: 未配置');
+        parts.push(status.approvals_configured ? '审批: 已配置' : '审批: 未配置');
         parts.push(status.integrations_configured ? '出站消息: 已配置' : '出站消息: 未配置');
+        parts.push(status.runtime_configured ? '运行时: 已配置' : '运行时: 未配置');
         document.getElementById('status-info').textContent = parts.join(' | ');
         document.getElementById('run-outreach-btn').disabled = !status.integrations_configured;
       } catch (e) {
@@ -140,6 +157,69 @@
         ], data.logs);
       } catch (e) {
         renderEmpty('audit-table', e.message);
+      }
+    }
+
+    async function loadApprovals() {
+      const status = document.getElementById('approval-status').value;
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      params.set('limit', '100');
+      try {
+        const data = await api('/approvals?' + params.toString());
+        if (!data.configured) {
+          renderEmpty('approvals-table', data.message || '未配置审批存储');
+          return;
+        }
+        if (!data.requests.length) {
+          renderEmpty('approvals-table', '暂无审批请求');
+          return;
+        }
+        const rows = data.requests.map(r => ({
+          ...r,
+          requester_roles: Array.isArray(r.requester_roles) ? r.requester_roles.join(', ') : r.requester_roles,
+          actions: r.status === 'pending'
+            ? `<button class="btn btn-primary btn-sm" onclick="resolveApproval('${r.id}', true)">批准</button>
+               <button class="btn btn-secondary btn-sm" onclick="resolveApproval('${r.id}', false)">拒绝</button>`
+            : '',
+        }));
+        document.getElementById('approvals-table').innerHTML = `
+          <table class="data-table">
+            <thead><tr>
+              <th>创建时间</th><th>动作</th><th>目标</th><th>发起人</th><th>状态</th><th>线程</th><th>操作</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `<tr>
+                <td>${escHtml(r.created_at)}</td>
+                <td>${escHtml(r.action_name)}</td>
+                <td>${escHtml(r.target_id)}</td>
+                <td>${escHtml(r.requester_id)} (${escHtml(r.requester_roles)})</td>
+                <td>${escHtml(r.status)}</td>
+                <td>${escHtml(r.thread_id)}</td>
+                <td>${r.actions}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) {
+        renderEmpty('approvals-table', e.message);
+      }
+    }
+
+    async function resolveApproval(requestId, approved) {
+      try {
+        const result = await api(`/approvals/${requestId}/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({
+            approved,
+            resolver_id: 'admin-ui',
+            resolver_roles: ['admin'],
+          }),
+        });
+        toast(result.response || `已${approved ? '批准' : '拒绝'}`);
+        loadApprovals();
+        loadAuditLogs();
+      } catch (e) {
+        toast(e.message, 'error');
       }
     }
 
