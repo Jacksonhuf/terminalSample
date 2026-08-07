@@ -25,6 +25,9 @@ dev = [
 chat = [
     "chainlit>=2.0.0",
 ]
+studio = [
+    "langgraph-cli[inmem]>=0.2.0",
+]
 
 [project.scripts]
 ontology-platform = "ontology_platform.cli:main"

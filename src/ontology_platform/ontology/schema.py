@@ -65,6 +65,8 @@ class ActionDef(BaseModel):
     parameters: list[ActionParamDef] = Field(default_factory=list)
     requires_approval: bool = False
     keywords: list[str] = Field(default_factory=list)
+    allowed_roles: list[str] = Field(default_factory=list)
+    approver_roles: list[str] = Field(default_factory=list)
 
 
 class OntologyDef(BaseModel):
@@ -114,3 +116,4 @@ class ActionResult(BaseModel):
     message: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
     requires_approval: bool = False
+    denied: bool = False

@@ -198,6 +198,8 @@ def _format_results(state: AgentState) -> str:
         elif tool == "execute_action" and isinstance(result, dict):
             if result.get("success"):
                 lines.append(f"✅ {result.get('message', '操作成功')}")
+            elif result.get("denied"):
+                lines.append(f"🚫 {result.get('message', '权限不足')}")
             elif not result.get("requires_approval"):
                 lines.append(f"❌ {result.get('message', '操作失败')}")
 
