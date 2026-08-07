@@ -5,6 +5,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from ontology_platform.governance.audit import AuditLogger, AuditLogEntry
+from ontology_platform.governance.context import ExecutionContext
+from ontology_platform.governance.policy import PolicyEngine
 from ontology_platform.ontology.registry import OntologyRegistry
 from ontology_platform.ontology.schema import (
     ActionResult,
@@ -23,10 +26,15 @@ class OntologyService:
         registry: OntologyRegistry,
         ontology_name: str,
         store: MemoryStore | SQLiteStore | None = None,
+        policy: PolicyEngine | None = None,
+        audit: AuditLogger | None = None,
     ) -> None:
         self.registry = registry
         self.ontology_name = ontology_name
         self.store = store or MemoryStore()
+        self.policy = policy or PolicyEngine()
+        self.audit = audit
+        self._execution_context = ExecutionContext()
         self._ontology = registry.get(ontology_name)
         if self._ontology is None:
             raise ValueError(f"Ontology not found: {ontology_name}")
@@ -34,6 +42,12 @@ class OntologyService:
     @property
     def ontology(self):
         return self._ontology
+
+    def set_execution_context(self, ctx: ExecutionContext) -> None:
+        self._execution_context = ctx
+
+    def get_execution_context(self) -> ExecutionContext:
+        return self._execution_context
 
     def create_object(
         self,
@@ -153,43 +167,111 @@ class OntologyService:
         target_id: str,
         parameters: dict[str, Any] | None = None,
         approved: bool = False,
+        context: ExecutionContext | None = None,
     ) -> ActionResult:
+        ctx = context or self._execution_context
         action_def = self._ontology.get_action(action_name)
         if action_def is None:
-            return ActionResult(success=False, message=f"Unknown action: {action_name}")
+            return self._audit_and_return(
+                ctx, action_name, "", target_id, parameters or {}, approved,
+                ActionResult(success=False, message=f"Unknown action: {action_name}"),
+                status="failed",
+            )
 
         target = self.store.get_object(action_def.target_type, target_id)
         if target is None:
-            return ActionResult(
-                success=False,
-                message=f"Target not found: {action_def.target_type}/{target_id}",
+            return self._audit_and_return(
+                ctx, action_name, action_def.target_type, target_id, parameters or {}, approved,
+                ActionResult(
+                    success=False,
+                    message=f"Target not found: {action_def.target_type}/{target_id}",
+                ),
+                status="failed",
             )
 
         params = parameters or {}
 
+        can_exec, deny_msg = self.policy.can_execute(action_def, ctx)
+        if not can_exec:
+            return self._audit_and_return(
+                ctx, action_name, action_def.target_type, target_id, params, approved,
+                ActionResult(success=False, message=deny_msg, denied=True),
+                status="denied",
+            )
+
+        if action_def.requires_approval and approved:
+            can_approve, approve_msg = self.policy.can_approve(action_def, ctx)
+            if not can_approve:
+                return self._audit_and_return(
+                    ctx, action_name, action_def.target_type, target_id, params, approved,
+                    ActionResult(success=False, message=approve_msg, denied=True),
+                    status="denied",
+                )
+
         if action_def.requires_approval and not approved:
-            return ActionResult(
+            result = ActionResult(
                 success=False,
                 message="Action requires approval",
                 requires_approval=True,
                 data={"action": action_name, "target_id": target_id, "parameters": params},
             )
+            return self._audit_and_return(
+                ctx, action_name, action_def.target_type, target_id, params, approved,
+                result, status="approval_required",
+            )
 
         for param in action_def.parameters:
             if param.required and param.name not in params:
-                return ActionResult(
-                    success=False,
-                    message=f"Missing required parameter: {param.name}",
+                return self._audit_and_return(
+                    ctx, action_name, action_def.target_type, target_id, params, approved,
+                    ActionResult(success=False, message=f"Missing required parameter: {param.name}"),
+                    status="failed",
                 )
 
         handler = self.registry.get_action_handler(self.ontology_name, action_name)
         if handler is None:
-            return ActionResult(
-                success=False,
-                message=f"No handler registered for action: {action_name}",
+            return self._audit_and_return(
+                ctx, action_name, action_def.target_type, target_id, params, approved,
+                ActionResult(success=False, message=f"No handler registered for action: {action_name}"),
+                status="failed",
             )
 
-        return handler(self, target, params)
+        result = handler(self, target, params)
+        status = "success" if result.success else "failed"
+        return self._audit_and_return(
+            ctx, action_name, action_def.target_type, target_id, params, approved,
+            result, status=status,
+        )
+
+    def _audit_and_return(
+        self,
+        ctx: ExecutionContext,
+        action_name: str,
+        target_type: str,
+        target_id: str,
+        params: dict,
+        approved: bool,
+        result: ActionResult,
+        status: str,
+    ) -> ActionResult:
+        if self.audit:
+            self.audit.log(
+                AuditLogEntry(
+                    ontology_name=self.ontology_name,
+                    user_id=ctx.user_id,
+                    roles=ctx.roles,
+                    thread_id=ctx.thread_id,
+                    action_name=action_name,
+                    target_type=target_type,
+                    target_id=target_id,
+                    parameters=params,
+                    status=status,
+                    success=result.success,
+                    message=result.message,
+                    approved=approved,
+                )
+            )
+        return result
 
     def get_schema_summary(self) -> dict[str, Any]:
         """Return a summary of the ontology schema for agent context."""
@@ -212,6 +294,8 @@ class OntologyService:
                     "target_type": a.target_type,
                     "parameters": [p.model_dump() for p in a.parameters],
                     "requires_approval": a.requires_approval,
+                    "allowed_roles": a.allowed_roles,
+                    "approver_roles": a.approver_roles,
                 }
                 for a in self._ontology.actions
             ],

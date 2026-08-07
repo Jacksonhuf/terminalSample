@@ -69,7 +69,7 @@ class TestApprovalFlow:
 
     def test_resume_approve(self, app: PrototypeApp):
         app.chat_raw("预约 SN-2024-001", thread_id="t3")
-        result = app.platform.resume(approved=True, thread_id="t3")
+        result = app.platform.resume(approved=True, thread_id="t3", roles=["admin"])
         assert result.interrupted is False
         # Missing person_id params — action fails but flow completes
         assert "person_id" in result.response or "缺少" in result.response

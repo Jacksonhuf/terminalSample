@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from ontology_platform.governance.context import ExecutionContext
 from ontology_platform.ontology.registry import OntologyRegistry
 from ontology_platform.ontology.schema import ActionResult, OntologyDef
 from ontology_platform.ontology.service import OntologyService
@@ -60,6 +61,7 @@ class TestOntologyService:
         assert result.requires_approval is True
 
     def test_action_with_approval(self, service: OntologyService):
+        service.set_execution_context(ExecutionContext(roles=["admin"]))
         result = service.execute_action(
             "AssignToProject", "P-002", {"project_id": "PRJ-001"}, approved=True
         )

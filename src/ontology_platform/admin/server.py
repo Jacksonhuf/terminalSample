@@ -26,9 +26,12 @@ class CreateOntologyRequest(BaseModel):
     version: str = "1.0"
 
 
-def create_app(ontology_dir: str | Path | None = None) -> FastAPI:
+def create_app(ontology_dir: str | Path | None = None, audit_path: str | Path | None = None) -> FastAPI:
     base_dir = Path(ontology_dir) if ontology_dir else Path(__file__).parent.parent.parent.parent / "examples"
     manager = OntologyManager(base_dir)
+    from ontology_platform.governance.audit import AuditLogger
+
+    audit_logger = AuditLogger(audit_path) if audit_path else None
 
     app = FastAPI(
         title="Ontology Admin",
@@ -37,6 +40,13 @@ def create_app(ontology_dir: str | Path | None = None) -> FastAPI:
     )
 
     # --- API ---
+
+    @app.get("/api/audit-logs")
+    def audit_logs(action_name: str | None = None, user_id: str | None = None, limit: int = 100):
+        if audit_logger is None:
+            return {"logs": [], "message": "未配置审计日志路径"}
+        logs = audit_logger.query(action_name=action_name, user_id=user_id, limit=limit)
+        return {"logs": [log.model_dump() for log in logs], "count": len(logs)}
 
     @app.get("/api/ontologies")
     def list_ontologies():

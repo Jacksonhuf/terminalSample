@@ -10,11 +10,15 @@ from ontology_platform.platform import AgentPlatform, ChatResult
 __all__ = [
     "AgentConfig",
     "AgentPlatform",
+    "AuditLogEntry",
+    "AuditLogger",
     "ChatResult",
+    "ExecutionContext",
     "MemoryStore",
     "OntologyRegistry",
     "OntologyService",
     "OntologyStore",
+    "PolicyEngine",
     "PrototypeApp",
     "SQLiteStore",
 ]

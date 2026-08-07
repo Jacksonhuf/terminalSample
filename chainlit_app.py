@@ -92,9 +92,14 @@ async def on_message(message: cl.Message):
         ).send()
 
         approved = bool(action_res.get("payload", {}).get("approved"))
+        approve_roles = os.getenv("ONTOLOGY_APPROVER_ROLES", "admin").split(",")
         async with cl.Step(name="审批处理", type="tool") as approval_step:
             approval_step.output = "已批准" if approved else "已拒绝"
-            final = platform.resume(approved=approved, thread_id=thread_id)
+            final = platform.resume(
+                approved=approved,
+                thread_id=thread_id,
+                roles=approve_roles,
+            )
             final_summary = summarize_chat_result(final)
 
         await cl.Message(content=final_summary["response"]).send()

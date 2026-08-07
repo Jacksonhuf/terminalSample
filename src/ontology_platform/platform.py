@@ -14,6 +14,9 @@ from ontology_platform.agent.config import AgentConfig
 from ontology_platform.agent.graph import build_agent_graph
 from ontology_platform.agent.planner import create_planner
 from ontology_platform.agent.state import AgentState
+from ontology_platform.governance.audit import AuditLogger
+from ontology_platform.governance.context import ExecutionContext
+from ontology_platform.governance.policy import PolicyEngine
 from ontology_platform.ontology.registry import OntologyRegistry
 from ontology_platform.ontology.schema import ActionResult, OntologyObject
 from ontology_platform.ontology.service import OntologyService
@@ -47,7 +50,14 @@ class AgentPlatform:
         self.config = config or AgentConfig()
         self._model = model
         store = self._create_store()
-        self.service = OntologyService(registry, ontology_name, store=store)
+        audit = AuditLogger(self.config.get_audit_path()) if self.config.enable_governance else None
+        self.service = OntologyService(
+            registry,
+            ontology_name,
+            store=store,
+            policy=PolicyEngine(),
+            audit=audit,
+        )
         planner = create_planner(self.config.planner_mode, self.service, model)
         self.graph = build_agent_graph(self.service, planner, self.config)
 
@@ -120,16 +130,39 @@ class AgentPlatform:
             ontology_results=values.get("ontology_results", result.get("ontology_results", [])),
         )
 
-    def chat(self, message: str, thread_id: str | None = None) -> ChatResult:
+    def _set_context(self, thread_id: str, user_id: str | None = None, roles: list[str] | None = None) -> ExecutionContext:
+        ctx = ExecutionContext(
+            user_id=user_id or self.config.user_id,
+            roles=roles or list(self.config.roles),
+            thread_id=thread_id,
+        )
+        self.service.set_execution_context(ctx)
+        return ctx
+
+    def chat(
+        self,
+        message: str,
+        thread_id: str | None = None,
+        user_id: str | None = None,
+        roles: list[str] | None = None,
+    ) -> ChatResult:
         tid = thread_id or self.config.thread_id
+        self._set_context(tid, user_id, roles)
         config = self._build_config(tid)
         result = self.graph.invoke(self._initial_state(message), config)
         snapshot = self.graph.get_state(config)
         return self._build_chat_result(result, snapshot, tid)
 
-    def resume(self, approved: bool = True, thread_id: str | None = None) -> ChatResult:
+    def resume(
+        self,
+        approved: bool = True,
+        thread_id: str | None = None,
+        user_id: str | None = None,
+        roles: list[str] | None = None,
+    ) -> ChatResult:
         """Resume an interrupted approval flow."""
         tid = thread_id or self.config.thread_id
+        self._set_context(tid, user_id, roles)
         config = self._build_config(tid)
         result = self.graph.invoke(Command(resume=approved), config)
         snapshot = self.graph.get_state(config)
@@ -137,6 +170,11 @@ class AgentPlatform:
 
     def get_service(self) -> OntologyService:
         return self.service
+
+    def get_audit_logs(self, action_name: str | None = None, user_id: str | None = None, limit: int = 100):
+        if self.service.audit is None:
+            return []
+        return self.service.audit.query(action_name=action_name, user_id=user_id, limit=limit)
 
     def seed_demo_data(self) -> None:
         """Seed minimal demo data if the ontology has Person/Project types."""

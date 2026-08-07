@@ -97,6 +97,8 @@ actions:
     description: 预约一台可用样机
     target_type: Prototype
     requires_approval: true
+    allowed_roles: [operator, admin]
+    approver_roles: [admin]
     keywords: [预约, reserve, 预订]
     parameters:
       - name: person_id
@@ -117,6 +119,8 @@ actions:
     description: 领用样机出库
     target_type: Prototype
     requires_approval: true
+    allowed_roles: [operator, admin]
+    approver_roles: [admin]
     keywords: [领用, checkout, 借出, 领取]
     parameters:
       - name: person_id
@@ -129,6 +133,7 @@ actions:
     description: 归还样机入库
     target_type: Prototype
     requires_approval: false
+    allowed_roles: [operator, admin]
     keywords: [归还, return, 还回]
     parameters:
       - name: condition
@@ -141,6 +146,8 @@ actions:
     description: 将样机标记为报废
     target_type: Prototype
     requires_approval: true
+    allowed_roles: [admin]
+    approver_roles: [admin]
     keywords: [报废, retire, 退役]
     parameters:
       - name: reason

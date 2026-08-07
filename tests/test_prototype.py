@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from ontology_platform.apps.prototype import PrototypeApp
+from ontology_platform.governance.context import ExecutionContext
 
 PROTOTYPE_ONTOLOGY = Path(__file__).parent.parent / "examples" / "prototype_ontology.yaml"
 
@@ -44,6 +45,7 @@ class TestPrototypeOntology:
         assert result.requires_approval is True
 
     def test_reserve_approved(self, app: PrototypeApp):
+        app.service.set_execution_context(ExecutionContext(user_id="admin1", roles=["admin"]))
         result = app.service.execute_action(
             "ReservePrototype",
             "SN-2024-001",
@@ -55,6 +57,7 @@ class TestPrototypeOntology:
         assert proto.properties["status"] == "reserved"
 
     def test_checkout_and_return(self, app: PrototypeApp):
+        app.service.set_execution_context(ExecutionContext(user_id="admin1", roles=["admin"]))
         checkout = app.service.execute_action(
             "CheckoutPrototype",
             "SN-2024-003",
@@ -76,6 +79,7 @@ class TestPrototypeOntology:
         assert proto.properties["status"] == "available"
 
     def test_retire(self, app: PrototypeApp):
+        app.service.set_execution_context(ExecutionContext(user_id="admin1", roles=["admin"]))
         result = app.service.execute_action(
             "RetirePrototype",
             "SN-2024-004",
