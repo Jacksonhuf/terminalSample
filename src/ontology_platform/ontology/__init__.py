@@ -9,15 +9,17 @@ from ontology_platform.ontology.schema import (
     PropertyDef,
 )
 from ontology_platform.ontology.service import OntologyService
-from ontology_platform.ontology.store import OntologyStore
+from ontology_platform.ontology.store import MemoryStore, OntologyStore, SQLiteStore
 
 __all__ = [
     "ActionDef",
     "LinkDef",
+    "MemoryStore",
     "ObjectTypeDef",
     "OntologyDef",
     "OntologyRegistry",
     "OntologyService",
     "OntologyStore",
     "PropertyDef",
+    "SQLiteStore",
 ]

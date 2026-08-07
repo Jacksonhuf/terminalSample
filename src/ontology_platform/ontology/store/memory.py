@@ -5,12 +5,8 @@ from __future__ import annotations
 from ontology_platform.ontology.schema import LinkInstance, OntologyObject
 
 
-class OntologyStore:
+class MemoryStore:
     """Simple in-memory store for ontology objects and links."""
-
-    def __init__(self) -> None:
-        self._objects: dict[str, dict[str, OntologyObject]] = {}
-        self._links: list[LinkInstance] = []
 
     def create_object(self, obj: OntologyObject) -> OntologyObject:
         bucket = self._objects.setdefault(obj.object_type, {})
@@ -100,3 +96,7 @@ class OntologyStore:
     def clear(self) -> None:
         self._objects.clear()
         self._links.clear()
+
+    def __init__(self) -> None:
+        self._objects: dict[str, dict[str, OntologyObject]] = {}
+        self._links: list[LinkInstance] = []

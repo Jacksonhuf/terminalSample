@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ontology_platform.agent.config import AgentConfig
 from ontology_platform.ontology.schema import ActionResult, OntologyObject
 from ontology_platform.ontology.service import OntologyService
-from ontology_platform.platform import AgentPlatform
+from ontology_platform.platform import AgentPlatform, ChatResult
 
 DEFAULT_ONTOLOGY = Path(__file__).parent.parent.parent.parent / "examples" / "prototype_ontology.yaml"
 
@@ -27,9 +28,14 @@ class PrototypeApp:
         self._handlers_registered = False
 
     @classmethod
-    def create(cls, ontology_path: str | Path | None = None) -> PrototypeApp:
+    def create(
+        cls,
+        ontology_path: str | Path | None = None,
+        config: AgentConfig | None = None,
+        model=None,
+    ) -> PrototypeApp:
         path = ontology_path or DEFAULT_ONTOLOGY
-        platform = AgentPlatform.from_yaml(path)
+        platform = AgentPlatform.from_yaml(path, config=config, model=model)
         app = cls(platform)
         app.register_handlers()
         return app
@@ -104,8 +110,14 @@ class PrototypeApp:
         svc.create_link("located_at", "Prototype", "SN-2024-004", "Location", "LOC-A1")
         svc.create_link("custodian", "Prototype", "SN-2024-002", "Person", "P-001")
 
-    def chat(self, message: str, thread_id: str = "default") -> str:
+    def chat(self, message: str, thread_id: str | None = None) -> str:
+        return self.platform.chat(message, thread_id).response
+
+    def chat_raw(self, message: str, thread_id: str | None = None) -> ChatResult:
         return self.platform.chat(message, thread_id)
+
+    def resume(self, approved: bool = True, thread_id: str | None = None) -> str:
+        return self.platform.resume(approved, thread_id).response
 
     def list_available(self) -> list:
         return self.service.search_objects("Prototype", {"status": "available"})

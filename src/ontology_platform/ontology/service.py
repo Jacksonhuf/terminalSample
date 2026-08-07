@@ -12,16 +12,21 @@ from ontology_platform.ontology.schema import (
     OntologyObject,
     PropertyType,
 )
-from ontology_platform.ontology.store import OntologyStore
+from ontology_platform.ontology.store import MemoryStore, SQLiteStore
 
 
 class OntologyService:
     """Runtime service operating on a registered ontology."""
 
-    def __init__(self, registry: OntologyRegistry, ontology_name: str) -> None:
+    def __init__(
+        self,
+        registry: OntologyRegistry,
+        ontology_name: str,
+        store: MemoryStore | SQLiteStore | None = None,
+    ) -> None:
         self.registry = registry
         self.ontology_name = ontology_name
-        self.store = OntologyStore()
+        self.store = store or MemoryStore()
         self._ontology = registry.get(ontology_name)
         if self._ontology is None:
             raise ValueError(f"Ontology not found: {ontology_name}")

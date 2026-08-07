@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.types import interrupt
 
+from ontology_platform.agent.planner import Planner
 from ontology_platform.agent.state import AgentState
 from ontology_platform.ontology.service import OntologyService
 
@@ -19,186 +20,33 @@ def _last_user_message(state: AgentState) -> str:
     return ""
 
 
-def _extract_filters(text: str) -> dict[str, Any]:
-    """Extract property filters from natural language."""
-    filters: dict[str, Any] = {}
-    text_lower = text.lower()
-    if any(kw in text_lower for kw in ["可用", "available", "空闲"]):
-        filters["status"] = "available"
-    elif any(kw in text_lower for kw in ["使用中", "in_use", "在用"]):
-        filters["status"] = "in_use"
-    elif any(kw in text_lower for kw in ["维修", "maintenance"]):
-        filters["status"] = "maintenance"
-    elif any(kw in text_lower for kw in ["报废", "retired"]):
-        filters["status"] = "retired"
-    # 型号过滤 e.g. X100
-    model_match = re.search(r"\b(X\d{3})\b", text, re.IGNORECASE)
-    if model_match:
-        filters["model"] = model_match.group(1).upper()
-    return filters
+def make_plan_node(service: OntologyService, planner: Planner):
+    """Classify intent and build execution plan."""
+
+    def plan_node(state: AgentState) -> dict[str, Any]:
+        message = _last_user_message(state)
+        result = planner.plan(message, service)
+        return {
+            "intent": result.intent,
+            "entities": result.entities,
+            "plan": result.plan,
+            "error": result.error,
+            "approval_status": "",
+            "requires_approval": False,
+            "pending_action": {},
+            "interrupted": False,
+        }
+
+    return plan_node
 
 
-def _extract_entities(text: str, service: OntologyService) -> dict[str, Any]:
-    """Rule-based entity extraction for the minimal platform."""
-    entities: dict[str, Any] = {}
-    text_lower = text.lower()
-    entities["filters"] = _extract_filters(text)
-
-    for obj_type in service.ontology.object_types:
-        names = [obj_type.name.lower(), obj_type.display_name.lower()]
-        if any(n and n in text_lower for n in names):
-            entities["object_type"] = obj_type.name
-
-    # 样机领域常用中文别名
-    type_aliases = {
-        "样机": "Prototype",
-        "原型机": "Prototype",
-        "设备": "Prototype",
-    }
-    for alias, type_name in type_aliases.items():
-        if alias in text and service.ontology.get_object_type(type_name):
-            entities["object_type"] = type_name
-
-    id_match = re.search(
-        r"\b(SN-\d{4}-\d{3}|[A-Z]{2,}-\d{4}-\d{3,}|\w+-\d+)\b",
-        text,
-        re.IGNORECASE,
-    )
-    if id_match:
-        entities["object_id"] = id_match.group(1).upper()
-        if entities["object_id"].startswith("SN-") and service.ontology.get_object_type("Prototype"):
-            entities["object_type"] = "Prototype"
-
-    for action in service.ontology.actions:
-        keywords = [
-            action.name.lower(),
-            action.display_name.lower(),
-            *[k.lower() for k in action.keywords],
-        ]
-        if any(kw and kw in text_lower for kw in keywords):
-            entities["action_name"] = action.name
-
-    for link in service.ontology.links:
-        if link.name.lower() in text_lower:
-            entities["link_type"] = link.name
-
-    return entities
-
-
-def make_router_node(service: OntologyService):
-    """Classify user intent without requiring an LLM."""
-
-    def router(state: AgentState) -> dict[str, Any]:
-        text = _last_user_message(state).lower()
-        entities = _extract_entities(_last_user_message(state), service)
-
-        action_keywords = [
-            "执行", "操作", "预约", "领用", "归还", "报废",
-            "创建", "删除", "更新", "execute", "action", "reserve", "checkout", "return",
-        ]
-        traverse_keywords = ["关联", "关系", "链接", "属于", "归属", "link", "related", "traverse"]
-        query_keywords = ["查询", "搜索", "有哪些", "列出", "search", "query", "list", "find", "show"]
-
-        if "action_name" in entities or any(kw in text for kw in action_keywords):
-            intent = "action"
-        elif "link_type" in entities or any(kw in text for kw in traverse_keywords):
-            intent = "traverse"
-        elif any(kw in text for kw in query_keywords) or "object_type" in entities:
-            intent = "query"
-        elif len(text.strip()) < 3:
-            intent = "clarify"
-        else:
-            intent = "query"
-
-        return {"intent": intent, "entities": entities, "error": ""}
-
-    return router
-
-
-def make_planner_node(service: OntologyService):
-    """Build an execution plan from intent and entities."""
-
-    def planner(state: AgentState) -> dict[str, Any]:
-        intent = state["intent"]
-        entities = state.get("entities", {})
-        plan: list[dict[str, Any]] = []
-
-        if intent == "query":
-            filters = entities.get("filters", {})
-            object_type = entities.get("object_type", service.ontology.object_types[0].name)
-            if "object_id" in entities:
-                plan = [
-                    {
-                        "tool": "get_object",
-                        "args": {
-                            "object_type": object_type,
-                            "object_id": entities["object_id"],
-                        },
-                    }
-                ]
-            else:
-                plan.append(
-                    {
-                        "tool": "search_objects",
-                        "args": {
-                            "object_type": object_type,
-                            "filters": filters,
-                        },
-                    }
-                )
-
-        elif intent == "traverse":
-            object_type = entities.get("object_type", service.ontology.object_types[0].name)
-            link_type = entities.get("link_type")
-            if not link_type and object_type == "Prototype" and any(
-                kw in _last_user_message(state) for kw in ["项目", "归属", "属于"]
-            ):
-                link_type = "belongs_to"
-            plan.append(
-                {
-                    "tool": "traverse_links",
-                    "args": {
-                        "object_type": object_type,
-                        "object_id": entities.get("object_id", ""),
-                        "link_type": link_type,
-                        "direction": "outgoing",
-                    },
-                }
-            )
-
-        elif intent == "action":
-            if "action_name" not in entities:
-                return {
-                    "plan": [],
-                    "intent": "clarify",
-                    "error": "Could not determine which action to execute",
-                }
-            plan.append(
-                {
-                    "tool": "execute_action",
-                    "args": {
-                        "action_name": entities["action_name"],
-                        "target_id": entities.get("object_id", ""),
-                        "parameters": {},
-                        "approved": False,
-                    },
-                }
-            )
-
-        elif intent == "clarify":
-            plan.append({"tool": "get_ontology_schema", "args": {}})
-
-        return {"plan": plan}
-
-    return planner
-
-
-def make_executor_node(tools_by_name: dict[str, Any]):
+def make_executor_node(tools_by_name: dict[str, Any], approved: bool = False):
     """Execute the planned tool calls."""
 
     def executor(state: AgentState) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         requires_approval = False
+        pending_action: dict[str, Any] = {}
 
         for step in state.get("plan", []):
             tool_name = step["tool"]
@@ -207,27 +55,68 @@ def make_executor_node(tools_by_name: dict[str, Any]):
                 results.append({"tool": tool_name, "error": "Tool not found"})
                 continue
 
+            args = dict(step.get("args", {}))
+            if tool_name == "execute_action" and approved:
+                args["approved"] = True
+
             try:
-                output = tool.invoke(step.get("args", {}))
+                output = tool.invoke(args)
                 parsed = json.loads(output) if isinstance(output, str) else output
 
                 if isinstance(parsed, dict) and parsed.get("requires_approval"):
                     requires_approval = True
+                    pending_action = {"tool": tool_name, "args": args}
 
                 results.append({"tool": tool_name, "result": parsed})
             except Exception as exc:
                 results.append({"tool": tool_name, "error": str(exc)})
 
-        return {"ontology_results": results, "requires_approval": requires_approval}
+        return {
+            "ontology_results": results,
+            "requires_approval": requires_approval,
+            "pending_action": pending_action,
+        }
 
     return executor
+
+
+def make_approval_node():
+    """Human-in-the-loop approval gate using LangGraph interrupt."""
+
+    def approval_node(state: AgentState) -> dict[str, Any]:
+        if state.get("approval_status") in ("approved", "rejected"):
+            return {}
+
+        pending = state.get("pending_action", {})
+        action_name = pending.get("args", {}).get("action_name", "unknown")
+        target_id = pending.get("args", {}).get("target_id", "")
+
+        decision = interrupt(
+            {
+                "type": "approval_required",
+                "message": f"操作 {action_name} 作用于 {target_id} 需要审批",
+                "pending_action": pending,
+            }
+        )
+
+        approved = decision if isinstance(decision, bool) else bool(
+            decision.get("approved") if isinstance(decision, dict) else decision
+        )
+        return {
+            "approval_status": "approved" if approved else "rejected",
+            "interrupted": False,
+        }
+
+    return approval_node
 
 
 def make_response_node(service: OntologyService):
     """Synthesize a natural language response from ontology results."""
 
     def respond(state: AgentState) -> dict[str, Any]:
-        if state.get("error"):
+        if state.get("approval_status") == "rejected":
+            response = "操作已被拒绝，未执行任何变更。"
+        elif state.get("error"):
             response = f"抱歉，无法处理您的请求：{state['error']}"
         elif state.get("intent") == "clarify":
             schema = service.get_schema_summary()
@@ -239,8 +128,14 @@ def make_response_node(service: OntologyService):
                 f"- 可执行动作: {actions}\n"
                 f"您可以查询对象、遍历关系或执行动作。"
             )
-        elif state.get("requires_approval"):
-            response = "该操作需要审批后才能执行。请确认后重新提交（approved=true）。"
+        elif state.get("requires_approval") and not state.get("approval_status"):
+            pending = state.get("pending_action", {})
+            action = pending.get("args", {}).get("action_name", "操作")
+            target = pending.get("args", {}).get("target_id", "")
+            response = (
+                f"⏸️ 操作「{action}」(目标: {target}) 需要审批。\n"
+                f"请调用 resume(approved=True) 批准，或 resume(approved=False) 拒绝。"
+            )
         elif not state.get("ontology_results"):
             response = "未找到相关结果。"
         else:
@@ -280,7 +175,7 @@ def _format_results(state: AgentState) -> str:
 
         elif tool == "get_object" and isinstance(result, dict):
             if "error" in result:
-                lines.append(f"对象未找到。")
+                lines.append("对象未找到。")
             else:
                 props = result.get("properties", {})
                 lines.append(f"对象 [{result['object_type']}] {result['object_id']}:")
@@ -303,7 +198,7 @@ def _format_results(state: AgentState) -> str:
         elif tool == "execute_action" and isinstance(result, dict):
             if result.get("success"):
                 lines.append(f"✅ {result.get('message', '操作成功')}")
-            else:
+            elif not result.get("requires_approval"):
                 lines.append(f"❌ {result.get('message', '操作失败')}")
 
         elif tool == "get_ontology_schema":

@@ -73,15 +73,15 @@ class TestOntologyService:
 
 class TestAgentPlatform:
     def test_chat_query(self, platform: AgentPlatform):
-        response = platform.chat("查询所有 Person")
+        response = platform.chat("查询所有 Person").response
         assert "张三" in response or "找到" in response
 
     def test_chat_traverse(self, platform: AgentPlatform):
-        response = platform.chat("查询 P-001 的关联")
+        response = platform.chat("查询 P-001 的关联").response
         assert "Project" in response or "关联" in response
 
     def test_chat_clarify(self, platform: AgentPlatform):
-        response = platform.chat("?")
+        response = platform.chat("?").response
         assert "Ontology" in response or "本体" in response
 
     def test_tools_creation(self, platform: AgentPlatform):
