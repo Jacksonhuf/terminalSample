@@ -32,6 +32,7 @@ studio = [
 [project.scripts]
 ontology-platform = "ontology_platform.cli:main"
 ontology-admin = "ontology_platform.admin.__main__:main"
+ontology-connector = "ontology_platform.connector.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ontology_platform"]

@@ -1,0 +1,40 @@
+name: prototype_erp
+description: 从样机管理 ERP Web 界面采集样机与项目数据
+
+mode: computer_use
+source_url: https://erp.example.com/prototypes
+capture_instructions: |
+  1. 打开样机列表页面
+  2. 如有筛选，选择「进行中」状态
+  3. 逐页采集表格数据，每行一条记录
+  4. 对每条记录提取：样机编号、序列号、型号、状态、所属项目
+  5. 返回 JSON，格式见 output_format
+
+computer_use_hints:
+  - 表格可能在 iframe 内，需先切换 frame
+  - 状态字段映射为 available / reserved / in_use / maintenance / retired
+
+record_mappings:
+  - record_type: prototype
+    object_type: Prototype
+    id_field: id
+    field_mappings:
+      - source: id
+        target: id
+      - source: serial_number
+        target: serial_number
+      - source: model
+        target: model
+      - source: status
+        target: status
+
+  - record_type: project
+    object_type: Project
+    id_field: id
+    field_mappings:
+      - source: id
+        target: id
+      - source: name
+        target: name
+      - source: status
+        target: status

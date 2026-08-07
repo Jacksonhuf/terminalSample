@@ -20,7 +20,8 @@
 │  语义层 — OntologyService                                    │
 │  Object / Link / Action                                      │
 ├─────────────────────────────────────────────────────────────┤
-│  数据层 — MemoryStore / SQLite                               │
+│  数据层 — Data Connector + SQLite                            │
+│  Computer Use 采集 → SQL 暂存 → Ontology 同步                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -152,11 +153,33 @@ print(app.chat("预约 SN-2024-003"))
 
 详见 `examples/prototype_ontology.yaml`（Prototype / Person / Project / Location + 4 个动作）。
 
+### Data Connector（Computer Use → SQL → Ontology）
+
+从只有 Web 界面的外部系统采集数据，先写入 SQL 暂存区，再同步到本体：
+
+```bash
+# 1. 生成 Computer Use 采集任务（含 run_id 与操作说明）
+ontology-connector task prototype_erp
+
+# 2. Computer Use 完成后，将采集 JSON 入库
+ontology-connector ingest examples/captures/prototype_erp_sample.json
+
+# 3. 映射同步到 Ontology
+ontology-connector sync prototype_erp
+
+# 查看运行状态
+ontology-connector status prototype_erp
+ontology-connector list
+```
+
+Connector 定义见 `examples/connectors/`，采集样例见 `examples/captures/`。完整说明见 [ARCHITECTURE.md](ARCHITECTURE.md#5-数据层data-connectorcomputer-use--sql--ontology)。
+
 ## 项目结构
 
 ```
 src/ontology_platform/
 ├── ontology/          # 本体核心（schema, service, store/）
+├── connector/         # Data Connector（Computer Use → SQL → sync）
 ├── agent/             # LangGraph（graph, nodes, planner, tools）
 ├── governance/        # 审计日志 + RBAC 策略
 ├── platform.py        # AgentPlatform 入口
@@ -165,18 +188,19 @@ src/ontology_platform/
 └── chat/              # Chainlit 辅助
 chainlit_app.py        # Chainlit 入口
 langgraph_studio.py    # LangGraph Studio 入口
-examples/              # Ontology YAML 定义
+examples/              # Ontology YAML + Connector + 采集样例
 ARCHITECTURE.md        # 模式 A 架构文档
 ```
 
 ## 测试
 
 ```bash
-pytest   # 57 个测试
+pytest   # 含 connector 测试
 ```
 
 ## 扩展路线
 
+- [x] Data Connector（Computer Use → SQL → Ontology）
 - [ ] PostgreSQL / Neo4j 持久化
 - [ ] 审计日志查询 UI（admin 前端）
 - [ ] LDAP / SSO 用户集成

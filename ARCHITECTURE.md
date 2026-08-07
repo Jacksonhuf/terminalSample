@@ -22,7 +22,7 @@
 │   RBAC 权限  |  Action 审计日志                              │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 1: 数据层                                              │
-│   SQLite / PostgreSQL  |  外部系统同步                       │
+│   Data Connector (Computer Use → SQL)  |  Ontology Store    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -38,6 +38,7 @@
 | Action 权限 | PolicyEngine (RBAC) | ✅ |
 | Workshop (应用 UI) | ontology-admin | ✅ |
 | Logic 可视化编辑器 | LangGraph Studio（调试） | ✅ 短期 |
+| Data Connection / Pipeline | Data Connector (Computer Use → SQL) | ✅ |
 
 ---
 
@@ -134,7 +135,84 @@ execute_action
 
 ---
 
-## 5. 前端分工（模式 A）
+## 5. 数据层：Data Connector（Computer Use → SQL → Ontology）
+
+当外部系统没有开放 API、只有 Web 界面时，使用 **Computer Use** 代理模拟人工操作采集数据，先落地 SQL 暂存区，再映射同步到 Ontology。
+
+### 数据流
+
+```
+Connector YAML  →  Computer Use Agent  →  Capture JSON
+       ↓                                      ↓
+  task 指令                            ingest → SQLite staging
+                                              ↓
+                                    sync → OntologyService
+```
+
+### 1. 定义 Connector（YAML）
+
+`examples/connectors/prototype_erp.yaml`：
+
+- `mode: computer_use` — 采集模式
+- `source_url` — 目标 Web 地址
+- `capture_instructions` — 给 Computer Use 的操作说明
+- `record_mappings` — 原始记录类型 → Ontology 对象类型字段映射
+
+### 2. 生成采集任务
+
+```bash
+ontology-connector task prototype_erp
+# 或 JSON 输出，供 Cursor Computer Use 子代理消费
+ontology-connector task prototype_erp --json
+```
+
+返回 `run_id`、操作说明和期望的 `CaptureBatch` JSON 格式。
+
+### 3. Computer Use 提交采集结果
+
+代理完成页面操作后，将数据保存为 JSON（见 `examples/captures/prototype_erp_sample.json`），再入库：
+
+```bash
+ontology-connector ingest examples/captures/prototype_erp_sample.json
+```
+
+### 4. 同步到 Ontology
+
+```bash
+ontology-connector sync prototype_erp
+ontology-connector status prototype_erp
+```
+
+### Python API
+
+```python
+from pathlib import Path
+from ontology_platform.connector import ConnectorManager, ConnectorStore, CaptureBatch
+from ontology_platform.ontology.registry import OntologyRegistry
+from ontology_platform.ontology.service import OntologyService
+from ontology_platform.ontology.store.sqlite import SQLiteStore
+
+store = ConnectorStore("./data/connector.db")
+registry = OntologyRegistry.from_yaml("examples/prototype_ontology.yaml")
+svc = OntologyService(registry, "prototype", store=SQLiteStore("./data/prototype.db"))
+mgr = ConnectorManager("examples/connectors", store, svc)
+
+task = mgr.get_computer_use_task("prototype_erp")
+batch = CaptureBatch.model_validate(capture_json)
+mgr.ingest_batch(batch)
+mgr.sync_to_ontology("prototype_erp")
+```
+
+### SQL 表结构
+
+| 表 | 用途 |
+|----|------|
+| `connector_runs` | 每次采集运行元数据 |
+| `connector_staged_records` | 原始记录暂存（含 sync 状态） |
+
+---
+
+## 6. 前端分工（模式 A）
 
 | 组件 | 端口 | 职责 |
 |------|------|------|

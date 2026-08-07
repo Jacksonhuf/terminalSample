@@ -1,0 +1,35 @@
+{
+  "connector": "prototype_erp",
+  "source_url": "https://erp.example.com/prototypes",
+  "records": [
+    {
+      "record_type": "prototype",
+      "external_id": "P-101",
+      "payload": {
+        "id": "P-101",
+        "serial_number": "SN-2026-101",
+        "model": "Alpha-X1",
+        "status": "in_use"
+      }
+    },
+    {
+      "record_type": "prototype",
+      "external_id": "P-102",
+      "payload": {
+        "id": "P-102",
+        "serial_number": "SN-2026-102",
+        "model": "Beta-Y2",
+        "status": "available"
+      }
+    },
+    {
+      "record_type": "project",
+      "external_id": "PRJ-1",
+      "payload": {
+        "id": "PRJ-1",
+        "name": "Project Alpha",
+        "status": "active"
+      }
+    }
+  ]
+}
