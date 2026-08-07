@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operations - 运营中心</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-brand">
+      <span>◈</span> Ontology Admin
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-btn">本体列表</a>
+      <a href="/editor" class="nav-btn">编辑器</a>
+      <a href="/visualize" class="nav-btn">可视化</a>
+      <a href="/operations" class="nav-btn active">运营中心</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title">运营中心</h1>
+        <p class="page-subtitle" id="status-info">加载配置状态...</p>
+      </div>
+      <button class="btn btn-primary" id="run-outreach-btn" onclick="runOutreach()">▶ 执行到期跟催</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="audit" onclick="switchTab('audit')">审计日志</button>
+      <button class="tab" data-tab="messages" onclick="switchTab('messages')">消息记录</button>
+      <button class="tab" data-tab="outreach" onclick="switchTab('outreach')">跟催任务</button>
+    </div>
+
+    <div id="panel-audit" class="tab-panel active">
+      <div class="filter-bar">
+        <input id="audit-action" placeholder="动作名 (如 ReservePrototype)">
+        <input id="audit-user" placeholder="用户 ID">
+        <button class="btn btn-secondary btn-sm" onclick="loadAuditLogs()">查询</button>
+      </div>
+      <div class="table-wrap" id="audit-table"></div>
+    </div>
+
+    <div id="panel-messages" class="tab-panel">
+      <div class="filter-bar">
+        <input id="msg-object-type" placeholder="对象类型 (如 Prototype)">
+        <input id="msg-object-id" placeholder="对象 ID">
+        <button class="btn btn-secondary btn-sm" onclick="loadMessageLogs()">查询</button>
+      </div>
+      <div class="table-wrap" id="messages-table"></div>
+    </div>
+
+    <div id="panel-outreach" class="tab-panel">
+      <div class="filter-bar">
+        <select id="task-status">
+          <option value="">全部状态</option>
+          <option value="pending">pending</option>
+          <option value="sent">sent</option>
+          <option value="failed">failed</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+        <input id="task-object-type" placeholder="对象类型">
+        <input id="task-object-id" placeholder="对象 ID">
+        <button class="btn btn-secondary btn-sm" onclick="loadOutreachTasks()">查询</button>
+      </div>
+      <div class="table-wrap" id="outreach-table"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    let activeTab = 'audit';
+
+    function switchTab(name) {
+      activeTab = name;
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('panel-' + name).classList.add('active');
+      if (name === 'audit') loadAuditLogs();
+      if (name === 'messages') loadMessageLogs();
+      if (name === 'outreach') loadOutreachTasks();
+    }
+
+    function renderEmpty(targetId, message) {
+      document.getElementById(targetId).innerHTML = `<div class="empty-state card">${escHtml(message)}</div>`;
+    }
+
+    function renderTable(targetId, columns, rows) {
+      if (!rows.length) {
+        renderEmpty(targetId, '暂无数据');
+        return;
+      }
+      const head = columns.map(c => `<th>${escHtml(c.label)}</th>`).join('');
+      const body = rows.map(row => {
+        const cells = columns.map(c => `<td>${escHtml(String(row[c.key] ?? ''))}</td>`).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      document.getElementById(targetId).innerHTML = `
+        <table class="data-table">
+          <thead><tr>${head}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>`;
+    }
+
+    async function loadStatus() {
+      try {
+        const status = await api('/operations/status');
+        const parts = [];
+        parts.push(status.audit_configured ? '审计: 已配置' : '审计: 未配置');
+        parts.push(status.integrations_configured ? '出站消息: 已配置' : '出站消息: 未配置');
+        document.getElementById('status-info').textContent = parts.join(' | ');
+        document.getElementById('run-outreach-btn').disabled = !status.integrations_configured;
+      } catch (e) {
+        document.getElementById('status-info').textContent = e.message;
+      }
+    }
+
+    async function loadAuditLogs() {
+      const action = document.getElementById('audit-action').value.trim();
+      const user = document.getElementById('audit-user').value.trim();
+      const params = new URLSearchParams();
+      if (action) params.set('action_name', action);
+      if (user) params.set('user_id', user);
+      params.set('limit', '100');
+      try {
+        const data = await api('/audit-logs?' + params.toString());
+        if (!data.configured) {
+          renderEmpty('audit-table', data.message || '未配置审计日志');
+          return;
+        }
+        renderTable('audit-table', [
+          { key: 'timestamp', label: '时间' },
+          { key: 'user_id', label: '用户' },
+          { key: 'action_name', label: '动作' },
+          { key: 'target_id', label: '目标' },
+          { key: 'status', label: '状态' },
+          { key: 'message', label: '消息' },
+        ], data.logs);
+      } catch (e) {
+        renderEmpty('audit-table', e.message);
+      }
+    }
+
+    async function loadMessageLogs() {
+      const objectType = document.getElementById('msg-object-type').value.trim();
+      const objectId = document.getElementById('msg-object-id').value.trim();
+      const params = new URLSearchParams();
+      if (objectType) params.set('object_type', objectType);
+      if (objectId) params.set('object_id', objectId);
+      params.set('limit', '100');
+      try {
+        const data = await api('/message-logs?' + params.toString());
+        if (!data.configured) {
+          renderEmpty('messages-table', data.message || '未配置 integrations 数据库');
+          return;
+        }
+        renderTable('messages-table', [
+          { key: 'timestamp', label: '时间' },
+          { key: 'channel', label: '通道' },
+          { key: 'template_id', label: '模板' },
+          { key: 'recipients', label: '收件人' },
+          { key: 'status', label: '状态' },
+          { key: 'object_id', label: '对象' },
+          { key: 'error', label: '错误' },
+        ], data.logs.map(l => ({
+          ...l,
+          recipients: Array.isArray(l.recipients) ? l.recipients.join(', ') : l.recipients,
+        })));
+      } catch (e) {
+        renderEmpty('messages-table', e.message);
+      }
+    }
+
+    async function loadOutreachTasks() {
+      const status = document.getElementById('task-status').value;
+      const objectType = document.getElementById('task-object-type').value.trim();
+      const objectId = document.getElementById('task-object-id').value.trim();
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (objectType) params.set('object_type', objectType);
+      if (objectId) params.set('object_id', objectId);
+      params.set('limit', '100');
+      try {
+        const data = await api('/outreach-tasks?' + params.toString());
+        if (!data.configured) {
+          renderEmpty('outreach-table', data.message || '未配置 integrations 数据库');
+          return;
+        }
+        renderTable('outreach-table', [
+          { key: 'due_at', label: '到期时间' },
+          { key: 'channel', label: '通道' },
+          { key: 'template_id', label: '模板' },
+          { key: 'status', label: '状态' },
+          { key: 'object_id', label: '对象' },
+          { key: 'person_id', label: '人员' },
+          { key: 'attempt_count', label: '重试' },
+          { key: 'last_error', label: '错误' },
+        ], data.tasks);
+      } catch (e) {
+        renderEmpty('outreach-table', e.message);
+      }
+    }
+
+    async function runOutreach() {
+      try {
+        const result = await api('/outreach/run', { method: 'POST' });
+        toast(`已处理 ${result.processed} 条，成功 ${result.sent}，失败 ${result.failed}`);
+        loadOutreachTasks();
+        loadMessageLogs();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    loadStatus();
+    loadAuditLogs();
+  </script>
+</body>
+</html>

@@ -76,8 +76,12 @@ chainlit run chainlit_app.py
 |----------|--------|------|
 | `ONTOLOGY_APP` | `prototype` | `prototype` 或 `demo` |
 | `ONTOLOGY_STORE_PATH` | — | SQLite 持久化路径 |
+| `ONTOLOGY_INTEGRATIONS_DB` | 同 store | 消息日志与跟催任务库 |
 | `ONTOLOGY_SEED` | `true` | 启动时注入示例数据 |
-| `ONTOLOGY_APPROVER_ROLES` | `admin` | 审批时使用的角色 |
+| `ONTOLOGY_USER_ID` | `anonymous` | 未启用 Chainlit 登录时的用户 ID |
+| `ONTOLOGY_USER_ROLES` | `operator` | 未启用登录时的角色（逗号分隔） |
+| `ONTOLOGY_APPROVER_ROLES` | `admin` | 未启用登录时审批使用的角色 |
+| `ONTOLOGY_ROLE_MAP` | — | JSON：用户 ID 前缀 → 角色列表 |
 
 ### 本体管理界面 & 可视化
 
@@ -91,7 +95,14 @@ ontology-admin --port 8080
 | 本体列表 | http://localhost:8080/ | 查看/新建本体 |
 | 编辑器 | http://localhost:8080/editor | 编辑对象/关系/动作，保存 YAML |
 | 可视化 | http://localhost:8080/visualize | 交互式本体图谱 |
-| 审计日志 | http://localhost:8080/api/audit-logs | 需 `--dir` 配合 store 使用 |
+| 审计日志 | http://localhost:8080/api/audit-logs | 需 `--store-path` 配置数据库 |
+| 运营中心 | http://localhost:8080/operations | 审计 / 消息 / 跟催任务可视化 |
+
+启动时指定数据路径以启用运营功能：
+
+```bash
+ontology-admin --port 8080 --store-path ./data/platform.db
+```
 
 ### LangGraph Studio（编排调试）
 
@@ -157,8 +168,9 @@ print(app.chat("预约 SN-2024-003"))
 通过 Ontology Action 触发内部 IM 或邮件通知，支持定时跟催：
 
 ```bash
-# 处理到期跟催（建议 cron 每分钟或每 5 分钟执行）
+# 处理到期跟催（建议 cron 或守护进程）
 ontology-outreach run
+ontology-outreach daemon --interval 60
 
 # 查看发送记录
 ontology-outreach logs --object-type Prototype --object-id SN-2024-002
@@ -232,8 +244,10 @@ pytest   # 含 connector 测试
 
 - [x] Outbound Channels（IM / 邮件 / 跟催）
 - [x] Data Connector（Computer Use → SQL → Ontology）
+- [x] 审计日志 / 消息 / 跟催 admin 运营中心
+- [x] outreach 守护进程 (`ontology-outreach daemon`)
+- [x] Chainlit 用户身份与 RBAC 对接（含角色映射）
 - [ ] PostgreSQL / Neo4j 持久化
-- [ ] 审计日志查询 UI（admin 前端）
 - [ ] LDAP / SSO 用户集成
 - [ ] 自研 Logic 可视化编辑器（长期）
 - [x] LLM Planner

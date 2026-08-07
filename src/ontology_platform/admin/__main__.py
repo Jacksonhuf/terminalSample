@@ -21,11 +21,56 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0", help="Bind host")
     parser.add_argument("--port", type=int, default=8080, help="Bind port")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+    parser.add_argument(
+        "--store-path",
+        type=str,
+        default="",
+        help="SQLite path for ontology objects, audit, and integrations (shorthand)",
+    )
+    parser.add_argument(
+        "--audit-path",
+        type=str,
+        default="",
+        help="Audit log SQLite path (default: --store-path)",
+    )
+    parser.add_argument(
+        "--integrations-db",
+        type=str,
+        default="",
+        help="Message log + outreach SQLite path (default: --store-path)",
+    )
+    parser.add_argument(
+        "--ontology-yaml",
+        type=str,
+        default="",
+        help="Ontology YAML for outreach worker (default: <dir>/prototype_ontology.yaml)",
+    )
+    parser.add_argument(
+        "--ontology-db",
+        type=str,
+        default="",
+        help="Ontology object SQLite for outreach worker",
+    )
     args = parser.parse_args()
 
-    app = create_app(args.dir)
+    store_path = args.store_path or None
+    audit_path = args.audit_path or store_path
+    integrations_db = args.integrations_db or store_path
+    ontology_yaml = args.ontology_yaml or None
+    ontology_db = args.ontology_db or None
+
+    app = create_app(
+        args.dir,
+        audit_path=audit_path,
+        integrations_db_path=integrations_db,
+        ontology_yaml_path=ontology_yaml,
+        ontology_db_path=ontology_db,
+    )
     print(f"\n  Ontology Admin UI: http://localhost:{args.port}")
-    print(f"  Ontology directory: {args.dir}\n")
+    print(f"  Ontology directory: {args.dir}")
+    if audit_path:
+        print(f"  Audit / integrations DB: {audit_path}")
+    print(f"  Operations console: http://localhost:{args.port}/operations\n")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 
