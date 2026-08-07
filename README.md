@@ -20,8 +20,7 @@
 │  语义层 — OntologyService                                    │
 │  Object / Link / Action                                      │
 ├─────────────────────────────────────────────────────────────┤
-│  数据层 — Data Connector + SQLite                            │
-│  Computer Use 采集 → SQL 暂存 → Ontology 同步                │
+│  数据层 — Connector (入站) + Channel Adapter (出站) + SQL    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -151,7 +150,37 @@ print(app.chat("查询 X100 型号样机"))
 print(app.chat("预约 SN-2024-003"))
 ```
 
-详见 `examples/prototype_ontology.yaml`（Prototype / Person / Project / Location + 4 个动作）。
+详见 `examples/prototype_ontology.yaml`（Prototype / Person / Project / Location + 8 个动作，含 IM/邮件通知）。
+
+### Outbound Channels（IM / 邮件 / 跟催）
+
+通过 Ontology Action 触发内部 IM 或邮件通知，支持定时跟催：
+
+```bash
+# 处理到期跟催（建议 cron 每分钟或每 5 分钟执行）
+ontology-outreach run
+
+# 查看发送记录
+ontology-outreach logs --object-type Prototype --object-id SN-2024-002
+ontology-outreach tasks --status pending
+```
+
+| Action | 说明 |
+|--------|------|
+| `NotifyCustodian` | IM 通知样机保管人 |
+| `SendChatMessage` | 向指定人员发 IM（需审批） |
+| `SendEmailReminder` | 立即邮件跟催（需审批） |
+| `ScheduleReminder` | 预约定时跟催 |
+
+配置环境变量以对接内部 CLI（默认 `im-cli` / `mail-cli`，开发模式 `ONTOLOGY_EMAIL_MODE=mock`）：
+
+```bash
+export ONTOLOGY_CHAT_CLI=im-cli
+export ONTOLOGY_EMAIL_MODE=smtp
+export ONTOLOGY_SMTP_HOST=mail.example.com
+```
+
+`Person` 对象需配置 `im_user_id` 和 `email`。完整说明见 [ARCHITECTURE.md](ARCHITECTURE.md#6-出站集成channel-adapterim--邮件--跟催)。
 
 ### Data Connector（Computer Use → SQL → Ontology）
 
@@ -180,6 +209,7 @@ Connector 定义见 `examples/connectors/`，采集样例见 `examples/captures/
 src/ontology_platform/
 ├── ontology/          # 本体核心（schema, service, store/）
 ├── connector/         # Data Connector（Computer Use → SQL → sync）
+├── integrations/      # Channel Adapter（IM / 邮件 / 跟催）
 ├── agent/             # LangGraph（graph, nodes, planner, tools）
 ├── governance/        # 审计日志 + RBAC 策略
 ├── platform.py        # AgentPlatform 入口
@@ -200,6 +230,7 @@ pytest   # 含 connector 测试
 
 ## 扩展路线
 
+- [x] Outbound Channels（IM / 邮件 / 跟催）
 - [x] Data Connector（Computer Use → SQL → Ontology）
 - [ ] PostgreSQL / Neo4j 持久化
 - [ ] 审计日志查询 UI（admin 前端）

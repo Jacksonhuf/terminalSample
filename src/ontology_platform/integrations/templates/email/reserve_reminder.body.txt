@@ -1,0 +1,6 @@
+您好 {{ person_name }}，
+
+您预约的样机 {{ prototype_id }}（型号 {{ model }}）将于 {{ end_date }} 到期。
+预约时段：{{ start_date }} ~ {{ end_date }}
+
+请按时归还或办理续借。

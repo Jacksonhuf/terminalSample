@@ -17,6 +17,7 @@ class AgentConfig:
     enable_governance: bool = True
     store_path: str | None = None  # SQLite path; None = in-memory
     audit_path: str | None = None  # Audit log SQLite; defaults to store_path
+    integrations_db_path: str | None = None  # Message log + outreach; defaults to store_path
     thread_id: str = "default"
     user_id: str = "anonymous"
     roles: list[str] = field(default_factory=lambda: ["operator"])
