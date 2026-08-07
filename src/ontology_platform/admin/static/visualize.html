@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ontology Visualize - 本体可视化</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-brand">
+      <span>◈</span> Ontology Admin
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-btn">本体列表</a>
+      <a href="/editor" class="nav-btn">编辑器</a>
+      <a href="/visualize" class="nav-btn active">可视化</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title" id="page-title">本体可视化</h1>
+        <p class="page-subtitle" id="page-subtitle">对象类型、关系与动作图谱</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="ontology-select" onchange="loadGraph(this.value)"
+          style="padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+          <option value="">选择本体...</option>
+        </select>
+        <a id="edit-link" href="/editor" class="btn btn-secondary btn-sm">编辑</a>
+      </div>
+    </div>
+
+    <div class="graph-legend">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#5b8def"></div> 对象类型
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#a78bfa"></div> 动作
+      </div>
+      <div class="legend-item">
+        <span style="color:var(--text-muted)">—→ 关系 &nbsp; ╌╌→ 动作指向</span>
+      </div>
+    </div>
+
+    <div id="graph-container"></div>
+    <div id="graph-stats" style="margin-top:12px;font-size:12px;color:var(--text-muted)"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    let network = null;
+
+    async function init() {
+      const data = await api('/ontologies');
+      const sel = document.getElementById('ontology-select');
+      sel.innerHTML = '<option value="">选择本体...</option>' +
+        data.ontologies.map(o => `<option value="${o.name}">${o.name}</option>`).join('');
+      const param = getParam('name');
+      if (param) { sel.value = param; await loadGraph(param); }
+    }
+
+    async function loadGraph(name) {
+      if (!name) return;
+      try {
+        const data = await api(`/ontologies/${name}/graph`);
+        document.getElementById('page-title').textContent = `${name} 图谱`;
+        document.getElementById('page-subtitle').textContent =
+          `${data.stats.object_types} 对象类型 · ${data.stats.links} 关系 · ${data.stats.actions} 动作`;
+        document.getElementById('edit-link').href = `/editor?name=${name}`;
+        document.getElementById('graph-stats').textContent =
+          `节点: ${data.nodes.length} | 边: ${data.edges.length}`;
+        history.replaceState(null, '', `?name=${name}`);
+
+        const nodes = new vis.DataSet(data.nodes.map(n => ({
+          id: n.id,
+          label: n.label,
+          group: n.group,
+          title: n.title + (n.property_count ? `\n${n.property_count} 个属性` : ''),
+          font: { color: '#e8eaf0', size: 14 },
+          shape: n.type === 'action' ? 'diamond' : 'box',
+          color: n.type === 'action'
+            ? { background: '#2d2050', border: '#a78bfa', highlight: { background: '#3d2e6a', border: '#c4b5fd' } }
+            : { background: '#1e3a5f', border: '#5b8def', highlight: { background: '#264a73', border: '#7aaef7' } },
+        })));
+
+        const edges = new vis.DataSet(data.edges.map(e => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+          label: e.label,
+          title: e.title || e.label,
+          arrows: e.arrows || 'to',
+          dashes: e.dashes || false,
+          font: { color: '#8b90a5', size: 11, strokeWidth: 0 },
+          color: { color: '#4a5068', highlight: '#5b8def' },
+        })));
+
+        const container = document.getElementById('graph-container');
+        if (network) network.destroy();
+
+        network = new vis.Network(container, { nodes, edges }, {
+          layout: {
+            improvedLayout: true,
+            hierarchical: { enabled: false },
+          },
+          physics: {
+            stabilization: { iterations: 150 },
+            barnesHut: { gravitationalConstant: -3000, springLength: 180 },
+          },
+          interaction: {
+            hover: true,
+            tooltipDelay: 100,
+            navigationButtons: true,
+            keyboard: true,
+          },
+          nodes: { borderWidth: 2, margin: 10 },
+          edges: { smooth: { type: 'continuous' } },
+        });
+
+        network.on('click', params => {
+          if (params.nodes.length) {
+            const nodeId = params.nodes[0];
+            const node = data.nodes.find(n => n.id === nodeId);
+            if (node) {
+              document.getElementById('graph-stats').textContent =
+                `选中: ${node.label} (${node.type}) — 双击可在编辑器中修改`;
+            }
+          }
+        });
+
+        network.on('doubleClick', params => {
+          if (params.nodes.length) {
+            window.location.href = `/editor?name=${name}`;
+          }
+        });
+
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
