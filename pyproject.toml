@@ -29,6 +29,12 @@ chat = [
 studio = [
     "langgraph-cli[inmem]>=0.2.0",
 ]
+postgres = [
+    "psycopg[binary]>=3.1",
+]
+checkpoint = [
+    "langgraph-checkpoint-sqlite>=2.0.0",
+]
 
 [project.scripts]
 ontology-platform = "ontology_platform.cli:main"

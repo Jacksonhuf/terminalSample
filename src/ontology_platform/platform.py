@@ -14,13 +14,14 @@ from ontology_platform.agent.config import AgentConfig
 from ontology_platform.agent.graph import build_agent_graph
 from ontology_platform.agent.planner import create_planner
 from ontology_platform.agent.state import AgentState
+from ontology_platform.governance.approval_store import ApprovalStore
 from ontology_platform.governance.audit import AuditLogger
 from ontology_platform.governance.context import ExecutionContext
 from ontology_platform.governance.policy import PolicyEngine
 from ontology_platform.ontology.registry import OntologyRegistry
 from ontology_platform.ontology.schema import ActionResult, OntologyObject
 from ontology_platform.ontology.service import OntologyService
-from ontology_platform.ontology.store import MemoryStore, SQLiteStore
+from ontology_platform.ontology.store.factory import create_checkpointer, create_store
 
 
 @dataclass
@@ -49,8 +50,10 @@ class AgentPlatform:
         self.registry = registry
         self.config = config or AgentConfig()
         self._model = model
-        store = self._create_store()
+        store = create_store(self.config)
         audit = AuditLogger(self.config.get_audit_path()) if self.config.enable_governance else None
+        approval_db = self.config.get_audit_path()
+        self.approval_store = ApprovalStore(approval_db) if approval_db else None
         self.service = OntologyService(
             registry,
             ontology_name,
@@ -59,12 +62,22 @@ class AgentPlatform:
             audit=audit,
         )
         planner = create_planner(self.config.planner_mode, self.service, model)
-        self.graph = build_agent_graph(self.service, planner, self.config)
+        checkpointer = create_checkpointer(self.config)
+        self.graph = build_agent_graph(self.service, planner, self.config, checkpointer=checkpointer)
 
-    def _create_store(self) -> MemoryStore | SQLiteStore:
-        if self.config.store_path:
-            return SQLiteStore(self.config.store_path)
-        return MemoryStore()
+    def _record_pending_approval(self, thread_id: str, pending: dict[str, Any], ctx: ExecutionContext) -> None:
+        if self.approval_store is None or not pending:
+            return
+        args = pending.get("args", {})
+        self.approval_store.create_pending(
+            thread_id=thread_id,
+            action_name=str(args.get("action_name", "")),
+            target_id=str(args.get("target_id", "")),
+            parameters=dict(args.get("parameters") or {}),
+            requester_id=ctx.user_id,
+            requester_roles=list(ctx.roles),
+            message=f"操作 {args.get('action_name', '')} 需要审批",
+        )
 
     @classmethod
     def from_yaml(
@@ -147,11 +160,14 @@ class AgentPlatform:
         roles: list[str] | None = None,
     ) -> ChatResult:
         tid = thread_id or self.config.thread_id
-        self._set_context(tid, user_id, roles)
+        ctx = self._set_context(tid, user_id, roles)
         config = self._build_config(tid)
         result = self.graph.invoke(self._initial_state(message), config)
         snapshot = self.graph.get_state(config)
-        return self._build_chat_result(result, snapshot, tid)
+        chat_result = self._build_chat_result(result, snapshot, tid)
+        if chat_result.interrupted:
+            self._record_pending_approval(tid, chat_result.pending_action, ctx)
+        return chat_result
 
     def resume(
         self,
@@ -162,14 +178,29 @@ class AgentPlatform:
     ) -> ChatResult:
         """Resume an interrupted approval flow."""
         tid = thread_id or self.config.thread_id
-        self._set_context(tid, user_id, roles)
+        ctx = self._set_context(tid, user_id, roles)
         config = self._build_config(tid)
         result = self.graph.invoke(Command(resume=approved), config)
         snapshot = self.graph.get_state(config)
+        if self.approval_store is not None:
+            self.approval_store.resolve_by_thread(
+                tid,
+                approved=approved,
+                resolver_id=ctx.user_id,
+                resolver_roles=list(ctx.roles),
+            )
         return self._build_chat_result(result, snapshot, tid)
 
     def get_service(self) -> OntologyService:
         return self.service
+
+    def get_approval_store(self) -> ApprovalStore | None:
+        return self.approval_store
+
+    def list_approval_requests(self, status: str | None = None, limit: int = 100):
+        if self.approval_store is None:
+            return []
+        return self.approval_store.list_requests(status=status, limit=limit)
 
     def get_audit_logs(self, action_name: str | None = None, user_id: str | None = None, limit: int = 100):
         if self.service.audit is None:
