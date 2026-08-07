@@ -56,6 +56,28 @@ ontology-platform --seed --query "查询所有 Person"
 ontology-platform --app prototype --seed --query "查询所有可用样机"
 ```
 
+### 本体管理界面 & 可视化
+
+通过 Web UI 管理本体定义（增删改对象类型、关系、动作），并可视化本体图谱：
+
+```bash
+# 启动管理界面（默认加载 examples/ 目录下的 YAML）
+ontology-admin --port 8080
+
+# 指定本体目录
+ontology-admin --dir ./my_ontologies --port 8080
+```
+
+浏览器访问：
+
+| 页面 | 地址 | 功能 |
+|------|------|------|
+| 本体列表 | http://localhost:8080/ | 查看所有本体、新建 |
+| 编辑器 | http://localhost:8080/editor | 编辑对象类型/关系/动作，保存为 YAML |
+| 可视化 | http://localhost:8080/visualize | 交互式图谱（对象、关系、动作） |
+
+在编辑器中修改后点击「保存」，会直接写入 YAML 文件，智能体下次加载时即生效。
+
 ### 样机管理应用（第一个垂直应用）
 
 ```python
@@ -141,6 +163,10 @@ src/ontology_platform/
 ├── platform.py        # 平台入口
 ├── apps/
 │   └── prototype.py   # 样机管理应用
+├── admin/             # 本体管理 Web UI
+│   ├── manager.py     # YAML CRUD
+│   ├── server.py      # FastAPI 后端
+│   └── static/        # 前端页面
 └── cli.py             # 命令行工具
 examples/
 ├── demo_ontology.yaml       # 平台 Demo

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ontology Editor - 本体编辑器</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-brand">
+      <span>◈</span> Ontology Admin
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-btn">本体列表</a>
+      <a href="/editor" class="nav-btn active">编辑器</a>
+      <a href="/visualize" class="nav-btn">可视化</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title" id="page-title">本体编辑器</h1>
+        <p class="page-subtitle" id="page-subtitle">选择或加载一个本体</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <select id="ontology-select" onchange="switchOntology(this.value)" style="padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+          <option value="">选择本体...</option>
+        </select>
+        <button class="btn btn-secondary" onclick="viewGraph()">可视化</button>
+        <button class="btn btn-primary" onclick="saveOntology()">保存</button>
+      </div>
+    </div>
+
+    <div id="editor-content" style="display:none">
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">概览</button>
+        <button class="tab" data-tab="object-types">对象类型</button>
+        <button class="tab" data-tab="links">关系</button>
+        <button class="tab" data-tab="actions">动作</button>
+        <button class="tab" data-tab="json">JSON</button>
+      </div>
+
+      <!-- Overview -->
+      <div class="tab-panel active" id="panel-overview">
+        <div class="card">
+          <div class="form-row">
+            <div class="form-group">
+              <label>名称</label>
+              <input id="ont-name" readonly>
+            </div>
+            <div class="form-group">
+              <label>版本</label>
+              <input id="ont-version">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>描述</label>
+            <textarea id="ont-desc" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Object Types -->
+      <div class="tab-panel" id="panel-object-types">
+        <div class="toolbar" style="margin-bottom:12px">
+          <h3 style="font-size:14px">对象类型 (Object Types)</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddObjectType()">+ 添加</button>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>显示名</th><th>属性</th><th>主键</th><th>操作</th></tr>
+            </thead>
+            <tbody id="object-types-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Links -->
+      <div class="tab-panel" id="panel-links">
+        <div class="toolbar" style="margin-bottom:12px">
+          <h3 style="font-size:14px">关系 (Links)</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddLink()">+ 添加</button>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>源类型</th><th>目标类型</th><th>基数</th><th>描述</th><th>操作</th></tr>
+            </thead>
+            <tbody id="links-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="tab-panel" id="panel-actions">
+        <div class="toolbar" style="margin-bottom:12px">
+          <h3 style="font-size:14px">动作 (Actions)</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddAction()">+ 添加</button>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>显示名</th><th>目标类型</th><th>审批</th><th>参数</th><th>操作</th></tr>
+            </thead>
+            <tbody id="actions-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- JSON -->
+      <div class="tab-panel" id="panel-json">
+        <div class="card">
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">直接编辑 JSON 并保存</p>
+          <textarea id="json-editor" rows="30" style="font-family:monospace;font-size:12px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:12px"></textarea>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary" onclick="applyJson()">应用 JSON</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="empty-state" class="empty-state card">
+      <h3>请选择一个本体</h3>
+      <p>从上方下拉框选择，或返回<a href="/">本体列表</a>创建新的</p>
+    </div>
+  </div>
+
+  <!-- Generic Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal" id="modal-body"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    let ontology = null;
+    let currentName = null;
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    async function loadOntologyList() {
+      const data = await api('/ontologies');
+      const sel = document.getElementById('ontology-select');
+      sel.innerHTML = '<option value="">选择本体...</option>' +
+        data.ontologies.map(o => `<option value="${o.name}">${o.name}</option>`).join('');
+      const param = getParam('name');
+      if (param) { sel.value = param; await loadOntology(param); }
+    }
+
+    async function switchOntology(name) {
+      if (name) await loadOntology(name);
+    }
+
+    async function loadOntology(name) {
+      try {
+        ontology = await api(`/ontologies/${name}`);
+        currentName = name;
+        document.getElementById('editor-content').style.display = 'block';
+        document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('page-title').textContent = ontology.name;
+        document.getElementById('page-subtitle').textContent = ontology.description || '无描述';
+        renderAll();
+        history.replaceState(null, '', `?name=${name}`);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function renderAll() {
+      document.getElementById('ont-name').value = ontology.name;
+      document.getElementById('ont-version').value = ontology.version;
+      document.getElementById('ont-desc').value = ontology.description || '';
+      document.getElementById('json-editor').value = JSON.stringify(ontology, null, 2);
+      renderObjectTypes();
+      renderLinks();
+      renderActions();
+    }
+
+    function renderObjectTypes() {
+      const tbody = document.getElementById('object-types-table');
+      tbody.innerHTML = (ontology.object_types || []).map((ot, i) => `
+        <tr>
+          <td><span class="badge badge-blue">${escHtml(ot.name)}</span></td>
+          <td>${escHtml(ot.display_name || '')}</td>
+          <td>${(ot.properties || []).map(p => `<span class="badge badge-green">${escHtml(p.name)}:${p.type}</span>`).join(' ')}</td>
+          <td>${escHtml(ot.primary_key || 'id')}</td>
+          <td><button class="btn btn-danger btn-sm" onclick="deleteObjectType(${i})">删除</button></td>
+        </tr>
+      `).join('') || '<tr><td colspan="5" style="color:var(--text-muted)">暂无对象类型</td></tr>';
+    }
+
+    function renderLinks() {
+      const tbody = document.getElementById('links-table');
+      tbody.innerHTML = (ontology.links || []).map((l, i) => `
+        <tr>
+          <td>${escHtml(l.name)}</td>
+          <td><span class="badge badge-blue">${escHtml(l.source_type)}</span></td>
+          <td>→ <span class="badge badge-blue">${escHtml(l.target_type)}</span></td>
+          <td>${escHtml(l.cardinality || 'many')}</td>
+          <td>${escHtml(l.description || '')}</td>
+          <td><button class="btn btn-danger btn-sm" onclick="deleteLink(${i})">删除</button></td>
+        </tr>
+      `).join('') || '<tr><td colspan="6" style="color:var(--text-muted)">暂无关系</td></tr>';
+    }
+
+    function renderActions() {
+      const tbody = document.getElementById('actions-table');
+      tbody.innerHTML = (ontology.actions || []).map((a, i) => `
+        <tr>
+          <td>${escHtml(a.name)}</td>
+          <td>${escHtml(a.display_name || '')}</td>
+          <td><span class="badge badge-blue">${escHtml(a.target_type)}</span></td>
+          <td>${a.requires_approval ? '<span class="badge badge-orange">需审批</span>' : '-'}</td>
+          <td>${(a.parameters || []).map(p => escHtml(p.name)).join(', ') || '-'}</td>
+          <td><button class="btn btn-danger btn-sm" onclick="deleteAction(${i})">删除</button></td>
+        </tr>
+      `).join('') || '<tr><td colspan="6" style="color:var(--text-muted)">暂无动作</td></tr>';
+    }
+
+    function syncFromOverview() {
+      ontology.version = document.getElementById('ont-version').value;
+      ontology.description = document.getElementById('ont-desc').value;
+    }
+
+    async function saveOntology() {
+      if (!ontology) return;
+      syncFromOverview();
+      try {
+        await api(`/ontologies/${currentName}`, {
+          method: 'PUT',
+          body: JSON.stringify(ontology),
+        });
+        toast('保存成功');
+        document.getElementById('json-editor').value = JSON.stringify(ontology, null, 2);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function applyJson() {
+      try {
+        ontology = JSON.parse(document.getElementById('json-editor').value);
+        renderAll();
+        toast('JSON 已应用，请点击保存写入文件');
+      } catch (e) {
+        toast('JSON 格式错误: ' + e.message, 'error');
+      }
+    }
+
+    function showModal(html) {
+      document.getElementById('modal-body').innerHTML = html;
+      document.getElementById('modal').classList.add('open');
+    }
+
+    function hideModal() {
+      document.getElementById('modal').classList.remove('open');
+    }
+
+    function showAddObjectType() {
+      const typeNames = (ontology.object_types || []).map(t => t.name);
+      showModal(`
+        <h2>添加对象类型</h2>
+        <div class="form-group"><label>名称</label><input id="f-name" placeholder="Prototype"></div>
+        <div class="form-group"><label>显示名</label><input id="f-display" placeholder="样机"></div>
+        <div class="form-group"><label>描述</label><input id="f-desc"></div>
+        <div class="form-group"><label>主键</label><input id="f-pk" value="id"></div>
+        <div class="form-group"><label>属性 (每行一个: 名称:类型, 如 id:string)</label>
+          <textarea id="f-props" rows="4" placeholder="id:string&#10;name:string&#10;status:enum"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+          <button class="btn btn-primary" onclick="addObjectType()">添加</button>
+        </div>
+      `);
+    }
+
+    function addObjectType() {
+      const name = document.getElementById('f-name').value.trim();
+      if (!name) return toast('请输入名称', 'error');
+      const props = (document.getElementById('f-props').value || '').split('\n').filter(Boolean).map(line => {
+        const [n, t = 'string'] = line.split(':').map(s => s.trim());
+        const p = { name: n, type: t, required: true };
+        if (t === 'enum') p.enum_values = [];
+        return p;
+      });
+      ontology.object_types.push({
+        name,
+        display_name: document.getElementById('f-display').value,
+        description: document.getElementById('f-desc').value,
+        primary_key: document.getElementById('f-pk').value || 'id',
+        properties: props,
+      });
+      hideModal();
+      renderObjectTypes();
+      toast('已添加，记得保存');
+    }
+
+    function deleteObjectType(i) {
+      if (!confirm('确认删除?')) return;
+      ontology.object_types.splice(i, 1);
+      renderObjectTypes();
+    }
+
+    function showAddLink() {
+      const types = (ontology.object_types || []).map(t => t.name);
+      const opts = types.map(t => `<option value="${t}">${t}</option>`).join('');
+      showModal(`
+        <h2>添加关系</h2>
+        <div class="form-group"><label>名称</label><input id="f-name" placeholder="belongs_to"></div>
+        <div class="form-row">
+          <div class="form-group"><label>源类型</label><select id="f-source">${opts}</select></div>
+          <div class="form-group"><label>目标类型</label><select id="f-target">${opts}</select></div>
+        </div>
+        <div class="form-group"><label>描述</label><input id="f-desc"></div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+          <button class="btn btn-primary" onclick="addLink()">添加</button>
+        </div>
+      `);
+    }
+
+    function addLink() {
+      ontology.links.push({
+        name: document.getElementById('f-name').value.trim(),
+        source_type: document.getElementById('f-source').value,
+        target_type: document.getElementById('f-target').value,
+        cardinality: 'many',
+        description: document.getElementById('f-desc').value,
+      });
+      hideModal();
+      renderLinks();
+      toast('已添加，记得保存');
+    }
+
+    function deleteLink(i) {
+      if (!confirm('确认删除?')) return;
+      ontology.links.splice(i, 1);
+      renderLinks();
+    }
+
+    function showAddAction() {
+      const types = (ontology.object_types || []).map(t => t.name);
+      const opts = types.map(t => `<option value="${t}">${t}</option>`).join('');
+      showModal(`
+        <h2>添加动作</h2>
+        <div class="form-group"><label>名称</label><input id="f-name" placeholder="ReservePrototype"></div>
+        <div class="form-group"><label>显示名</label><input id="f-display" placeholder="预约样机"></div>
+        <div class="form-group"><label>目标类型</label><select id="f-target">${opts}</select></div>
+        <div class="form-group"><label>关键词 (逗号分隔)</label><input id="f-keywords" placeholder="预约,reserve"></div>
+        <div class="form-group"><label><input type="checkbox" id="f-approval"> 需要审批</label></div>
+        <div class="form-group"><label>参数 (每行: 名称:类型)</label>
+          <textarea id="f-params" rows="3" placeholder="person_id:string"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+          <button class="btn btn-primary" onclick="addAction()">添加</button>
+        </div>
+      `);
+    }
+
+    function addAction() {
+      const params = (document.getElementById('f-params').value || '').split('\n').filter(Boolean).map(line => {
+        const [n, t = 'string'] = line.split(':').map(s => s.trim());
+        return { name: n, type: t, required: true };
+      });
+      ontology.actions.push({
+        name: document.getElementById('f-name').value.trim(),
+        display_name: document.getElementById('f-display').value,
+        target_type: document.getElementById('f-target').value,
+        requires_approval: document.getElementById('f-approval').checked,
+        keywords: document.getElementById('f-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
+        parameters: params,
+      });
+      hideModal();
+      renderActions();
+      toast('已添加，记得保存');
+    }
+
+    function deleteAction(i) {
+      if (!confirm('确认删除?')) return;
+      ontology.actions.splice(i, 1);
+      renderActions();
+    }
+
+    function viewGraph() {
+      if (currentName) window.location.href = `/visualize?name=${currentName}`;
+    }
+
+    loadOntologyList();
+  </script>
+</body>
+</html>
