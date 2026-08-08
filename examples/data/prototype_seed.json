@@ -1,0 +1,14 @@
+[
+  {
+    "id": "FILE-001",
+    "serial_number": "SN-FILE-001",
+    "model": "X100",
+    "status": "available"
+  },
+  {
+    "id": "FILE-002",
+    "serial_number": "SN-FILE-002",
+    "model": "X200",
+    "status": "in_use"
+  }
+]

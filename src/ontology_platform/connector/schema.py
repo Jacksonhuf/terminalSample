@@ -37,6 +37,7 @@ class ConnectorDef(BaseModel):
     description: str = ""
     mode: CaptureMode = CaptureMode.COMPUTER_USE
     source_url: str = ""
+    source_file: str = ""
     capture_instructions: str = ""
     record_mappings: list[RecordMapping] = Field(default_factory=list)
     computer_use_hints: list[str] = Field(default_factory=list)

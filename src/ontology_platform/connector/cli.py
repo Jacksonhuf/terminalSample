@@ -70,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("connector", help="Connector name")
     p_sync.add_argument("--run-id", help="Specific run ID (default: all unsynced)")
 
+    p_file = sub.add_parser("ingest-file", help="Ingest from a file connector's source_file")
+    p_file.add_argument("connector", help="File connector name")
+
     p_status = sub.add_parser("status", help="Show connector run status")
     p_status.add_argument("connector", nargs="?", help="Filter by connector name")
 
@@ -120,6 +123,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sync":
         mgr = _build_manager(connectors_dir, db_path, ontology_yaml, ontology_db)
         result = mgr.sync_to_ontology(args.connector, run_id=args.run_id)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "ingest-file":
+        mgr = _build_manager(connectors_dir, db_path, ontology_yaml, ontology_db)
+        result = mgr.ingest_file(args.connector)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 

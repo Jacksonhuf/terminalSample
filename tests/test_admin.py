@@ -249,4 +249,4 @@ class TestExamplesIntegration:
         client = TestClient(app)
         res = client.get("/api/ontologies/prototype/graph")
         assert res.status_code == 200
-        assert res.json()["stats"]["object_types"] == 4
+        assert res.json()["stats"]["object_types"] == 5

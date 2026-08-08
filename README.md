@@ -158,10 +158,11 @@ from ontology_platform import PrototypeApp
 app = PrototypeApp.create()
 app.seed()
 print(app.chat("查询 X100 型号样机"))
-print(app.chat("预约 SN-2024-003"))
+print(app.chat("样机看板统计"))
+print(app.dashboard_text())
 ```
 
-详见 `examples/prototype_ontology.yaml`（Prototype / Person / Project / Location + 8 个动作，含 IM/邮件通知）。
+详见 `examples/prototype_ontology.yaml`（Prototype / Person / Project / Location / Reservation + 12 个动作，含调拨、送修、看板与 IM/邮件通知）。
 
 ### PostgreSQL 持久化
 
@@ -227,6 +228,9 @@ ontology-connector ingest examples/captures/prototype_erp_sample.json
 
 # 3. 映射同步到 Ontology
 ontology-connector sync prototype_erp
+
+# 离线模式：从本地 JSON 文件直接同步（无需 Computer Use）
+ontology-connector ingest-file prototype_file
 
 # 查看运行状态
 ontology-connector status prototype_erp

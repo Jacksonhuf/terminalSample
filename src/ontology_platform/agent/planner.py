@@ -69,6 +69,9 @@ class RulePlanner:
         service: OntologyService,
     ) -> list[dict[str, Any]]:
         if intent == "query":
+            if any(kw in text.lower() for kw in ["看板", "统计", "报表", "dashboard", "概览"]):
+                if service.ontology.name == "prototype":
+                    return [{"tool": "get_prototype_dashboard", "args": {}}]
             object_type = entities.get("object_type", service.ontology.object_types[0].name)
             if "object_id" in entities:
                 return [

@@ -7,10 +7,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ontology_platform.agent.config import AgentConfig
+from ontology_platform.agent.graph import build_agent_graph
+from ontology_platform.agent.planner import create_planner
+from ontology_platform.apps.prototype_analytics import build_dashboard, format_dashboard_text
+from ontology_platform.apps.prototype_tools import create_prototype_tools
 from ontology_platform.integrations.factory import build_notification_service
 from ontology_platform.integrations.schema import ChannelType
+from ontology_platform.ontology.registry import OntologyRegistry
 from ontology_platform.ontology.schema import ActionResult, OntologyObject
 from ontology_platform.ontology.service import OntologyService
+from ontology_platform.ontology.store.factory import create_checkpointer
 from ontology_platform.platform import AgentPlatform, ChatResult
 
 if TYPE_CHECKING:
@@ -52,6 +58,13 @@ class PrototypeApp:
         path = ontology_path or DEFAULT_ONTOLOGY
         cfg = config or AgentConfig()
         platform = AgentPlatform.from_yaml(path, config=cfg, model=model)
+        platform.graph = build_agent_graph(
+            platform.service,
+            create_planner(cfg.planner_mode, platform.service, model),
+            cfg,
+            checkpointer=create_checkpointer(cfg),
+            extra_tools=create_prototype_tools(platform.service),
+        )
         if notification is not None:
             ns = notification
         elif enable_notifications:
@@ -102,6 +115,22 @@ class PrototypeApp:
         self.platform.register_action_handler(
             "ScheduleReminder",
             lambda s, t, p: _schedule_reminder_handler(s, t, p, ns),
+        )
+        self.platform.register_action_handler(
+            "TransferProject",
+            lambda s, t, p: _transfer_project_handler(s, t, p),
+        )
+        self.platform.register_action_handler(
+            "TransferLocation",
+            lambda s, t, p: _transfer_location_handler(s, t, p),
+        )
+        self.platform.register_action_handler(
+            "StartMaintenance",
+            _start_maintenance_handler,
+        )
+        self.platform.register_action_handler(
+            "CompleteMaintenance",
+            _complete_maintenance_handler,
         )
         self._handlers_registered = True
 
@@ -197,6 +226,12 @@ class PrototypeApp:
     def list_available(self) -> list:
         return self.service.search_objects("Prototype", {"status": "available"})
 
+    def get_dashboard(self) -> dict:
+        return build_dashboard(self.service)
+
+    def dashboard_text(self) -> str:
+        return format_dashboard_text(self.get_dashboard())
+
 
 def _get_custodian_id(svc: OntologyService, prototype_id: str) -> str | None:
     links = svc.store.get_links(
@@ -258,6 +293,23 @@ def _reserve_handler(
         return ActionResult(success=False, message=f"人员不存在: {person_id}")
 
     _update_prototype_status(svc, target, "reserved")
+
+    reservation_id = f"RES-{target.object_id}-{params.get('start_date', 'na')}"
+    if svc.get_object("Reservation", reservation_id) is None:
+        svc.create_object(
+            "Reservation",
+            {
+                "id": reservation_id,
+                "prototype_id": target.object_id,
+                "person_id": person_id,
+                "start_date": params.get("start_date", ""),
+                "end_date": params.get("end_date", ""),
+                "status": "active",
+            },
+            reservation_id,
+        )
+        svc.create_link("reserved_for", "Reservation", reservation_id, "Prototype", target.object_id)
+        svc.create_link("reserved_by", "Reservation", reservation_id, "Person", person_id)
 
     reminder_id = None
     if notification and params.get("end_date"):
@@ -325,6 +377,8 @@ def _checkout_handler(
     if notification:
         notification.cancel_reminders(object_type="Prototype", object_id=target.object_id)
 
+    _complete_active_reservations(svc, target.object_id)
+
     return ActionResult(
         success=True,
         message=f"样机 {target.object_id} 已领用给 {person.properties.get('name', person_id)}",
@@ -353,6 +407,8 @@ def _return_handler(
 
     if notification:
         notification.cancel_reminders(object_type="Prototype", object_id=target.object_id)
+
+    _complete_active_reservations(svc, target.object_id)
 
     return ActionResult(
         success=True,
@@ -533,4 +589,99 @@ def _schedule_reminder_handler(
         success=True,
         message=f"已预约 {channel} 跟催，任务 ID: {task_id}",
         data={"prototype_id": target.object_id, "task_id": task_id},
+    )
+
+
+def _complete_active_reservations(svc: OntologyService, prototype_id: str) -> None:
+    for res in svc.search_objects("Reservation", {"prototype_id": prototype_id, "status": "active"}):
+        props = dict(res.properties)
+        props["status"] = "completed"
+        svc.store.update_object(
+            OntologyObject(object_type="Reservation", object_id=res.object_id, properties=props)
+        )
+
+
+def _transfer_project_handler(
+    svc: OntologyService, target: OntologyObject, params: dict
+) -> ActionResult:
+    project_id = params.get("project_id")
+    if not project_id:
+        return ActionResult(success=False, message="缺少 project_id 参数")
+    if svc.get_object("Project", project_id) is None:
+        return ActionResult(success=False, message=f"项目不存在: {project_id}")
+
+    svc.store.delete_links(
+        link_type="belongs_to", source_type="Prototype", source_id=target.object_id
+    )
+    svc.create_link("belongs_to", "Prototype", target.object_id, "Project", project_id)
+    return ActionResult(
+        success=True,
+        message=f"样机 {target.object_id} 已调拨到项目 {project_id}",
+        data={"prototype_id": target.object_id, "project_id": project_id},
+    )
+
+
+def _transfer_location_handler(
+    svc: OntologyService, target: OntologyObject, params: dict
+) -> ActionResult:
+    location_id = params.get("location_id")
+    if not location_id:
+        return ActionResult(success=False, message="缺少 location_id 参数")
+    if svc.get_object("Location", location_id) is None:
+        return ActionResult(success=False, message=f"库位不存在: {location_id}")
+
+    svc.store.delete_links(
+        link_type="located_at", source_type="Prototype", source_id=target.object_id
+    )
+    svc.create_link("located_at", "Prototype", target.object_id, "Location", location_id)
+    return ActionResult(
+        success=True,
+        message=f"样机 {target.object_id} 已移至库位 {location_id}",
+        data={"prototype_id": target.object_id, "location_id": location_id},
+    )
+
+
+def _start_maintenance_handler(
+    svc: OntologyService, target: OntologyObject, params: dict
+) -> ActionResult:
+    if target.properties.get("status") == "retired":
+        return ActionResult(success=False, message="已报废样机无法送修")
+    reason = params.get("reason", "")
+    if not reason:
+        return ActionResult(success=False, message="缺少维修原因")
+
+    props = dict(target.properties)
+    props["status"] = "maintenance"
+    props["maintenance_reason"] = reason
+    svc.store.update_object(
+        OntologyObject(object_type=target.object_type, object_id=target.object_id, properties=props)
+    )
+    svc.store.delete_links(
+        link_type="custodian", source_type="Prototype", source_id=target.object_id
+    )
+    return ActionResult(
+        success=True,
+        message=f"样机 {target.object_id} 已送修，原因: {reason}",
+        data={"prototype_id": target.object_id, "reason": reason},
+    )
+
+
+def _complete_maintenance_handler(
+    svc: OntologyService, target: OntologyObject, params: dict
+) -> ActionResult:
+    if target.properties.get("status") != "maintenance":
+        return ActionResult(success=False, message=f"样机 {target.object_id} 不在维修中")
+
+    props = dict(target.properties)
+    props["status"] = "available"
+    props.pop("maintenance_reason", None)
+    if params.get("notes"):
+        props["maintenance_notes"] = params["notes"]
+    svc.store.update_object(
+        OntologyObject(object_type=target.object_type, object_id=target.object_id, properties=props)
+    )
+    return ActionResult(
+        success=True,
+        message=f"样机 {target.object_id} 维修完成，已恢复可用",
+        data={"prototype_id": target.object_id},
     )
