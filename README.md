@@ -180,8 +180,8 @@ LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`，安装：`pi
 运营中心「审批工作台」Tab 可查看 pending 审批，并直接批准/拒绝（需配置 `--store-path` 以共享运行时 checkpoint）：
 
 ```bash
-ontology-admin --store-path ./data/platform.db --port 8080
-# http://localhost:8080/operations → 审批工作台
+ontology-admin --store-path ./data/platform.db --ontology-db ./data/prototype.db --port 8080
+# http://localhost:8080/operations → 样机看板 / 审批工作台（支持批量批准）
 ```
 
 ### Outbound Channels（IM / 邮件 / 跟催）

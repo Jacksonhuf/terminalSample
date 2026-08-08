@@ -32,6 +32,13 @@ class ResolveApprovalRequest(BaseModel):
     resolver_roles: list[str] = Field(default_factory=lambda: ["admin"])
 
 
+class BatchResolveApprovalRequest(BaseModel):
+    request_ids: list[str] = Field(default_factory=list)
+    approved: bool = True
+    resolver_id: str = "admin"
+    resolver_roles: list[str] = Field(default_factory=lambda: ["admin"])
+
+
 def create_app(
     ontology_dir: str | Path | None = None,
     audit_path: str | Path | None = None,
@@ -75,6 +82,46 @@ def create_app(
                 integrations_db_path=integrations_path,
             )
         return runtime_platform["instance"]
+
+    def _resolve_approval_request(request_id: str, body: ResolveApprovalRequest) -> dict:
+        if approval_store is None:
+            raise HTTPException(400, "未配置审批存储路径")
+        request = approval_store.get(request_id)
+        if request is None:
+            raise HTTPException(404, f"Approval request not found: {request_id}")
+        if request.status != "pending":
+            raise HTTPException(400, f"Approval request already {request.status}")
+
+        platform = _get_runtime_platform()
+        if platform is None:
+            raise HTTPException(400, "未配置运行时平台（需要 store-path 或 database-url）")
+
+        snapshot = platform.graph.get_state({"configurable": {"thread_id": request.thread_id}})
+        if not snapshot.next:
+            approval_store.resolve(
+                request_id,
+                approved=body.approved,
+                resolver_id=body.resolver_id,
+                resolver_roles=body.resolver_roles,
+            )
+            return {
+                "message": "审批记录已更新（无活动 interrupt，可能已在其他入口处理）",
+                "request_id": request_id,
+                "status": "approved" if body.approved else "rejected",
+            }
+
+        result = platform.resume(
+            approved=body.approved,
+            thread_id=request.thread_id,
+            user_id=body.resolver_id,
+            roles=body.resolver_roles,
+        )
+        return {
+            "request_id": request_id,
+            "status": "approved" if body.approved else "rejected",
+            "response": result.response,
+            "interrupted": result.interrupted,
+        }
 
     app = FastAPI(
         title="Ontology Admin",
@@ -145,11 +192,48 @@ def create_app(
             "integrations_configured": integrations_path is not None,
             "approvals_configured": approval_store is not None,
             "runtime_configured": bool(resolved_store_path or database_url),
+            "prototype_configured": bool(
+                yaml_path.exists() and (resolved_store_path or database_url)
+            ),
             "audit_path": str(resolved_store_path) if resolved_store_path else "",
             "integrations_path": str(integrations_path) if integrations_path else "",
             "database_url": database_url or "",
             "ontology_yaml": str(yaml_path),
             "ontology_db": str(obj_db_path or ""),
+        }
+
+    @app.get("/api/prototype/dashboard")
+    def prototype_dashboard():
+        from ontology_platform.apps.prototype_analytics import build_dashboard
+
+        platform = _get_runtime_platform()
+        if platform is None:
+            return {"configured": False, "message": "未配置运行时平台（需要 store-path 或 database-url）"}
+        dashboard = build_dashboard(platform.get_service())
+        return {"configured": True, **dashboard}
+
+    @app.post("/api/prototype/seed")
+    def prototype_seed():
+        from ontology_platform.apps.prototype import PrototypeApp
+
+        if not yaml_path.exists():
+            raise HTTPException(400, f"Ontology YAML 不存在: {yaml_path}")
+        config = AgentConfig(
+            store_path=str(resolved_store_path) if resolved_store_path else None,
+            database_url=database_url,
+            audit_path=str(resolved_store_path) if resolved_store_path else None,
+            integrations_db_path=str(integrations_path) if integrations_path else None,
+            enable_governance=True,
+            enable_approval_flow=True,
+        )
+        app_instance = PrototypeApp.create(ontology_path=yaml_path, config=config)
+        had_data = app_instance.service.get_object("Person", "P-001") is not None
+        app_instance.seed()
+        runtime_platform["instance"] = app_instance.platform
+        return {
+            "seeded": not had_data,
+            "message": "演示数据已存在" if had_data else "已写入演示数据",
+            "dashboard": app_instance.get_dashboard(),
         }
 
     @app.get("/api/approvals")
@@ -165,43 +249,27 @@ def create_app(
 
     @app.post("/api/approvals/{request_id}/resolve")
     def resolve_approval(request_id: str, body: ResolveApprovalRequest):
-        if approval_store is None:
-            raise HTTPException(400, "未配置审批存储路径")
-        request = approval_store.get(request_id)
-        if request is None:
-            raise HTTPException(404, f"Approval request not found: {request_id}")
-        if request.status != "pending":
-            raise HTTPException(400, f"Approval request already {request.status}")
+        return _resolve_approval_request(request_id, body)
 
-        platform = _get_runtime_platform()
-        if platform is None:
-            raise HTTPException(400, "未配置运行时平台（需要 store-path 或 database-url）")
-
-        snapshot = platform.graph.get_state({"configurable": {"thread_id": request.thread_id}})
-        if not snapshot.next:
-            approval_store.resolve(
-                request_id,
-                approved=body.approved,
-                resolver_id=body.resolver_id,
-                resolver_roles=body.resolver_roles,
-            )
-            return {
-                "message": "审批记录已更新（无活动 interrupt，可能已在其他入口处理）",
-                "request_id": request_id,
-                "status": "approved" if body.approved else "rejected",
-            }
-
-        result = platform.resume(
-            approved=body.approved,
-            thread_id=request.thread_id,
-            user_id=body.resolver_id,
-            roles=body.resolver_roles,
-        )
+    @app.post("/api/approvals/batch-resolve")
+    def batch_resolve_approval(body: BatchResolveApprovalRequest):
+        if not body.request_ids:
+            raise HTTPException(400, "request_ids 不能为空")
+        succeeded: list[dict] = []
+        failed: list[dict] = []
+        for request_id in body.request_ids:
+            try:
+                result = _resolve_approval_request(request_id, body)
+                succeeded.append(result)
+            except HTTPException as exc:
+                failed.append({"request_id": request_id, "error": str(exc.detail)})
+            except Exception as exc:
+                failed.append({"request_id": request_id, "error": str(exc)})
         return {
-            "request_id": request_id,
-            "status": "approved" if body.approved else "rejected",
-            "response": result.response,
-            "interrupted": result.interrupted,
+            "total": len(body.request_ids),
+            "succeeded": succeeded,
+            "failed": failed,
+            "approved": body.approved,
         }
 
     @app.get("/api/ontologies")

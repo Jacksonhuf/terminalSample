@@ -29,13 +29,22 @@
     </div>
 
     <div class="tabs">
-      <button class="tab active" data-tab="audit" onclick="switchTab('audit')">审计日志</button>
+      <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">样机看板</button>
+      <button class="tab" data-tab="audit" onclick="switchTab('audit')">审计日志</button>
       <button class="tab" data-tab="approvals" onclick="switchTab('approvals')">审批工作台</button>
       <button class="tab" data-tab="messages" onclick="switchTab('messages')">消息记录</button>
       <button class="tab" data-tab="outreach" onclick="switchTab('outreach')">跟催任务</button>
     </div>
 
-    <div id="panel-audit" class="tab-panel active">
+    <div id="panel-dashboard" class="tab-panel active">
+      <div class="filter-bar">
+        <button class="btn btn-secondary btn-sm" onclick="loadDashboard()">刷新</button>
+        <button class="btn btn-primary btn-sm" id="seed-btn" onclick="seedPrototype()">写入演示数据</button>
+      </div>
+      <div id="dashboard-content"></div>
+    </div>
+
+    <div id="panel-audit" class="tab-panel">
       <div class="filter-bar">
         <input id="audit-action" placeholder="动作名 (如 ReservePrototype)">
         <input id="audit-user" placeholder="用户 ID">
@@ -46,13 +55,18 @@
 
     <div id="panel-approvals" class="tab-panel">
       <div class="filter-bar">
-        <select id="approval-status">
+        <select id="approval-status" onchange="onApprovalStatusChange()">
           <option value="pending">pending</option>
           <option value="">全部状态</option>
           <option value="approved">approved</option>
           <option value="rejected">rejected</option>
         </select>
         <button class="btn btn-secondary btn-sm" onclick="loadApprovals()">查询</button>
+        <div class="batch-actions" id="batch-actions" style="display:none">
+          <label><input type="checkbox" id="select-all-approvals" onchange="toggleSelectAll()"> 全选</label>
+          <button class="btn btn-primary btn-sm" onclick="batchResolve(true)">批量批准</button>
+          <button class="btn btn-secondary btn-sm" onclick="batchResolve(false)">批量拒绝</button>
+        </div>
       </div>
       <div class="table-wrap" id="approvals-table"></div>
     </div>
@@ -85,13 +99,14 @@
 
   <script src="/static/app.js"></script>
   <script>
-    let activeTab = 'audit';
+    let activeTab = 'dashboard';
 
     function switchTab(name) {
       activeTab = name;
       document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('panel-' + name).classList.add('active');
+      if (name === 'dashboard') loadDashboard();
       if (name === 'audit') loadAuditLogs();
       if (name === 'approvals') loadApprovals();
       if (name === 'messages') loadMessageLogs();
@@ -127,10 +142,124 @@
         parts.push(status.approvals_configured ? '审批: 已配置' : '审批: 未配置');
         parts.push(status.integrations_configured ? '出站消息: 已配置' : '出站消息: 未配置');
         parts.push(status.runtime_configured ? '运行时: 已配置' : '运行时: 未配置');
+        parts.push(status.prototype_configured ? '样机看板: 已配置' : '样机看板: 未配置');
         document.getElementById('status-info').textContent = parts.join(' | ');
         document.getElementById('run-outreach-btn').disabled = !status.integrations_configured;
+        document.getElementById('seed-btn').disabled = !status.prototype_configured;
       } catch (e) {
         document.getElementById('status-info').textContent = e.message;
+      }
+    }
+
+    function renderKeyValueTable(title, rows, columns) {
+      if (!rows.length) return '';
+      const head = columns.map(c => `<th>${escHtml(c.label)}</th>`).join('');
+      const body = rows.map(row => {
+        const cells = columns.map(c => `<td>${escHtml(String(row[c.key] ?? ''))}</td>`).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      return `
+        <h3 class="section-title">${escHtml(title)}</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>${head}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>`;
+    }
+
+    async function loadDashboard() {
+      const target = document.getElementById('dashboard-content');
+      try {
+        const data = await api('/prototype/dashboard');
+        if (!data.configured) {
+          target.innerHTML = `<div class="empty-state card">${escHtml(data.message || '未配置运行时平台')}</div>`;
+          return;
+        }
+        const summary = data.summary || {};
+        const byStatus = data.by_status || {};
+        const byModel = data.by_model || {};
+        target.innerHTML = `
+          <div class="dashboard-grid">
+            <div class="stat-card"><div class="label">样机总数</div><div class="value">${summary.prototype_total ?? 0}</div></div>
+            <div class="stat-card"><div class="label">使用中</div><div class="value">${(data.in_use || []).length}</div></div>
+            <div class="stat-card"><div class="label">活跃预约</div><div class="value">${summary.reservation_active ?? 0}</div></div>
+            <div class="stat-card"><div class="label">逾期预约</div><div class="value">${summary.reservation_overdue ?? 0}</div></div>
+          </div>
+          <div class="card">
+            <div class="stats">
+              ${Object.entries(byStatus).map(([k, v]) => `<span class="stat"><strong>${escHtml(k)}</strong>: ${v}</span>`).join('')}
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div class="stats">
+              ${Object.entries(byModel).map(([k, v]) => `<span class="stat"><strong>${escHtml(k)}</strong>: ${v}</span>`).join('')}
+            </div>
+          </div>
+          ${renderKeyValueTable('使用中样机', data.in_use || [], [
+            { key: 'prototype_id', label: '样机 ID' },
+            { key: 'model', label: '型号' },
+            { key: 'custodian_id', label: '保管人' },
+          ])}
+          ${renderKeyValueTable('逾期预约', data.overdue_reservations || [], [
+            { key: 'reservation_id', label: '预约 ID' },
+            { key: 'prototype_id', label: '样机' },
+            { key: 'person_id', label: '预约人' },
+            { key: 'end_date', label: '截止日' },
+          ])}`;
+      } catch (e) {
+        target.innerHTML = `<div class="empty-state card">${escHtml(e.message)}</div>`;
+      }
+    }
+
+    async function seedPrototype() {
+      try {
+        const result = await api('/prototype/seed', { method: 'POST' });
+        toast(result.message || '演示数据已写入');
+        loadDashboard();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function onApprovalStatusChange() {
+      const isPending = document.getElementById('approval-status').value === 'pending';
+      document.getElementById('batch-actions').style.display = isPending ? 'flex' : 'none';
+      document.getElementById('select-all-approvals').checked = false;
+    }
+
+    function toggleSelectAll() {
+      const checked = document.getElementById('select-all-approvals').checked;
+      document.querySelectorAll('.approval-checkbox').forEach(cb => { cb.checked = checked; });
+    }
+
+    function getSelectedApprovalIds() {
+      return Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.value);
+    }
+
+    async function batchResolve(approved) {
+      const ids = getSelectedApprovalIds();
+      if (!ids.length) {
+        toast('请先选择审批项', 'error');
+        return;
+      }
+      try {
+        const result = await api('/approvals/batch-resolve', {
+          method: 'POST',
+          body: JSON.stringify({
+            request_ids: ids,
+            approved,
+            resolver_id: 'admin-ui',
+            resolver_roles: ['admin'],
+          }),
+        });
+        const ok = result.succeeded.length;
+        const fail = result.failed.length;
+        toast(`已处理 ${ok} 条${fail ? `，失败 ${fail} 条` : ''}`);
+        loadApprovals();
+        loadAuditLogs();
+      } catch (e) {
+        toast(e.message, 'error');
       }
     }
 
@@ -175,6 +304,8 @@
           renderEmpty('approvals-table', '暂无审批请求');
           return;
         }
+        const showBatch = status === 'pending';
+        document.getElementById('batch-actions').style.display = showBatch ? 'flex' : 'none';
         const rows = data.requests.map(r => ({
           ...r,
           requester_roles: Array.isArray(r.requester_roles) ? r.requester_roles.join(', ') : r.requester_roles,
@@ -183,13 +314,18 @@
                <button class="btn btn-secondary btn-sm" onclick="resolveApproval('${r.id}', false)">拒绝</button>`
             : '',
         }));
+        const checkboxHeader = showBatch ? '<th></th>' : '';
         document.getElementById('approvals-table').innerHTML = `
           <table class="data-table">
             <thead><tr>
+              ${checkboxHeader}
               <th>创建时间</th><th>动作</th><th>目标</th><th>发起人</th><th>状态</th><th>线程</th><th>操作</th>
             </tr></thead>
             <tbody>
               ${rows.map(r => `<tr>
+                ${showBatch && r.status === 'pending'
+                  ? `<td><input type="checkbox" class="approval-checkbox" value="${escHtml(r.id)}"></td>`
+                  : (showBatch ? '<td></td>' : '')}
                 <td>${escHtml(r.created_at)}</td>
                 <td>${escHtml(r.action_name)}</td>
                 <td>${escHtml(r.target_id)}</td>
@@ -295,7 +431,8 @@
     }
 
     loadStatus();
-    loadAuditLogs();
+    loadDashboard();
+    onApprovalStatusChange();
   </script>
 </body>
 </html>
