@@ -46,6 +46,7 @@ class AgentPlatform:
         ontology_name: str,
         config: AgentConfig | None = None,
         model: BaseChatModel | None = None,
+        extra_tools: list | None = None,
     ) -> None:
         self.registry = registry
         self.config = config or AgentConfig()
@@ -63,7 +64,13 @@ class AgentPlatform:
         )
         planner = create_planner(self.config.planner_mode, self.service, model)
         checkpointer = create_checkpointer(self.config)
-        self.graph = build_agent_graph(self.service, planner, self.config, checkpointer=checkpointer)
+        self.graph = build_agent_graph(
+            self.service,
+            planner,
+            self.config,
+            checkpointer=checkpointer,
+            extra_tools=extra_tools,
+        )
 
     def _record_pending_approval(self, thread_id: str, pending: dict[str, Any], ctx: ExecutionContext) -> None:
         if self.approval_store is None or not pending:
@@ -85,10 +92,11 @@ class AgentPlatform:
         path: str | Path,
         config: AgentConfig | None = None,
         model: BaseChatModel | None = None,
+        extra_tools: list | None = None,
     ) -> AgentPlatform:
         registry = OntologyRegistry.from_yaml(path)
         ontology_name = next(iter(registry.list_ontologies()))
-        return cls(registry, ontology_name, config, model)
+        return cls(registry, ontology_name, config, model, extra_tools=extra_tools)
 
     def register_action_handler(self, action_name: str, handler) -> None:
         self.registry.register_action_handler(self.service.ontology_name, action_name, handler)

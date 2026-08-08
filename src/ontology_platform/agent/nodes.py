@@ -206,6 +206,33 @@ def _format_results(state: AgentState) -> str:
         elif tool == "get_ontology_schema":
             lines.append("已加载本体 Schema。")
 
+        elif tool == "get_prototype_dashboard":
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    lines.append(result)
+                    continue
+            if isinstance(result, dict) and "summary" in result:
+                summary = result["summary"]
+                lines.append("📊 样机管理看板")
+                lines.append(f"- 样机总数: {summary.get('prototype_total', 0)}")
+                lines.append(f"- 按状态: {result.get('by_status', {})}")
+                lines.append(f"- 按型号: {result.get('by_model', {})}")
+                lines.append(f"- 使用中: {len(result.get('in_use', []))} 台")
+                lines.append(f"- 活跃预约: {summary.get('reservation_active', 0)} 条")
+                lines.append(f"- 逾期预约: {summary.get('reservation_overdue', 0)} 条")
+                overdue = result.get("overdue_reservations", [])
+                if overdue:
+                    lines.append("逾期预约明细:")
+                    for item in overdue:
+                        lines.append(
+                            f"  - {item.get('reservation_id')}: 样机 {item.get('prototype_id')}, "
+                            f"预约人 {item.get('person_id')}, 截止 {item.get('end_date')}"
+                        )
+            else:
+                lines.append(json.dumps(result, ensure_ascii=False, indent=2))
+
         else:
             lines.append(json.dumps(result, ensure_ascii=False, indent=2))
 

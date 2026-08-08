@@ -23,7 +23,7 @@ class TestPrototypeOntology:
         assert schema["name"] == "prototype"
         type_names = {t["name"] for t in schema["object_types"]}
         assert "Prototype" in type_names
-        assert len(schema["actions"]) == 8
+        assert len(schema["actions"]) == 12
 
     def test_seed_data(self, app: PrototypeApp):
         prototypes = app.service.search_objects("Prototype")

@@ -235,6 +235,86 @@ class TestApprovalsAPI:
         assert res.status_code == 200
         assert res.json()["count"] == 1
 
+
+class TestPrototypeDashboardAPI:
+    def test_dashboard_unconfigured(self, client):
+        res = client.get("/api/prototype/dashboard")
+        assert res.status_code == 200
+        assert res.json()["configured"] is False
+
+    def test_dashboard_with_seed(self, temp_dir):
+        db_path = temp_dir / "ops.db"
+        app = create_app(
+            EXAMPLES_DIR,
+            store_path=db_path,
+            ontology_yaml_path=EXAMPLES_DIR / "prototype_ontology.yaml",
+            ontology_db_path=temp_dir / "prototype.db",
+        )
+        client = TestClient(app)
+
+        seed_res = client.post("/api/prototype/seed")
+        assert seed_res.status_code == 200
+        assert seed_res.json()["seeded"] is True
+
+        dash_res = client.get("/api/prototype/dashboard")
+        assert dash_res.status_code == 200
+        data = dash_res.json()
+        assert data["configured"] is True
+        assert data["summary"]["prototype_total"] == 4
+        assert data["by_status"]["available"] == 2
+
+        seed_again = client.post("/api/prototype/seed")
+        assert seed_again.json()["seeded"] is False
+
+
+class TestBatchApprovalAPI:
+    def test_batch_resolve_empty(self, temp_dir, sample_ontology):
+        db_path = temp_dir / "ops.db"
+        mgr = OntologyManager(temp_dir)
+        mgr.save(sample_ontology)
+        app = create_app(temp_dir, store_path=db_path)
+        client = TestClient(app)
+
+        res = client.post("/api/approvals/batch-resolve", json={"request_ids": []})
+        assert res.status_code == 400
+
+    def test_batch_resolve_updates_records(self, temp_dir, sample_ontology):
+        from ontology_platform.governance.approval_store import ApprovalStore
+
+        db_path = temp_dir / "ops.db"
+        mgr = OntologyManager(temp_dir)
+        mgr.save(sample_ontology)
+        app = create_app(
+            temp_dir,
+            store_path=db_path,
+            ontology_yaml_path=EXAMPLES_DIR / "prototype_ontology.yaml",
+        )
+        client = TestClient(app)
+        store = ApprovalStore(db_path)
+        r1 = store.create_pending(thread_id="t-1", action_name="ReservePrototype", target_id="SN-001")
+        r2 = store.create_pending(thread_id="t-2", action_name="CheckoutPrototype", target_id="SN-002")
+
+        res = client.post(
+            "/api/approvals/batch-resolve",
+            json={
+                "request_ids": [r1.id, r2.id],
+                "approved": True,
+                "resolver_id": "admin-ui",
+                "resolver_roles": ["admin"],
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["total"] == 2
+        assert len(body["succeeded"]) == 2
+        assert body["failed"] == []
+
+        for rid in (r1.id, r2.id):
+            item = store.get(rid)
+            assert item is not None
+            assert item.status == "approved"
+
+
 class TestExamplesIntegration:
     def test_examples_loadable(self):
         app = create_app(EXAMPLES_DIR)
@@ -249,4 +329,4 @@ class TestExamplesIntegration:
         client = TestClient(app)
         res = client.get("/api/ontologies/prototype/graph")
         assert res.status_code == 200
-        assert res.json()["stats"]["object_types"] == 4
+        assert res.json()["stats"]["object_types"] == 5

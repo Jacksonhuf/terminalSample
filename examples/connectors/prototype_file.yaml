@@ -1,0 +1,19 @@
+name: prototype_file
+description: 从本地 JSON 文件同步样机台账（无需 Computer Use 或真实系统对接）
+
+mode: file
+source_file: examples/data/prototype_seed.json
+
+record_mappings:
+  - record_type: prototype
+    object_type: Prototype
+    id_field: id
+    field_mappings:
+      - source: id
+        target: id
+      - source: serial_number
+        target: serial_number
+      - source: model
+        target: model
+      - source: status
+        target: status

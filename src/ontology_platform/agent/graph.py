@@ -41,6 +41,7 @@ def build_agent_graph(
     planner: Planner | None = None,
     config: AgentConfig | None = None,
     checkpointer=None,
+    extra_tools: list | None = None,
 ):
     """Build a LangGraph agent that operates on an ontology.
 
@@ -50,6 +51,8 @@ def build_agent_graph(
     cfg = config or AgentConfig()
     planner = planner or RulePlanner()
     tools = create_ontology_tools(service)
+    if extra_tools:
+        tools.extend(extra_tools)
     tools_by_name = {t.name: t for t in tools}
 
     graph = StateGraph(AgentState)

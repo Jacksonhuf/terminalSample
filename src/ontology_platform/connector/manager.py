@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -142,6 +143,79 @@ class ConnectorManager:
                 )
 
         return {"synced": synced, "errors": errors}
+
+    def ingest_file(self, connector_name: str) -> dict[str, Any]:
+        """Read a local JSON file and sync records directly to ontology (offline mode)."""
+        if self.ontology_service is None:
+            raise ValueError("OntologyService required for file ingest")
+
+        connector = self.load_connector(connector_name)
+        if connector.mode.value != "file":
+            raise ValueError(f"Connector {connector_name} is not a file connector")
+
+        source_path = Path(connector.source_file)
+        if not source_path.is_absolute():
+            source_path = self.connector_dir.parent.parent / connector.source_file
+            if not source_path.exists():
+                source_path = Path(connector.source_file)
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source file not found: {connector.source_file}")
+
+        raw = json.loads(source_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            raise ValueError("File connector source must be a JSON array")
+
+        if not connector.record_mappings:
+            raise ValueError(f"Connector {connector_name} has no record_mappings")
+
+        mapping = connector.record_mappings[0]
+        run_id = self.start_run(connector_name)
+        created = 0
+        updated = 0
+
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            properties = self._apply_mapping(item, mapping)
+            object_id = str(properties.get(mapping.id_field, item.get(mapping.id_field, "")))
+            if not object_id:
+                continue
+
+            self.store.stage_record(
+                run_id=run_id,
+                connector_name=connector.name,
+                record_type=mapping.record_type,
+                external_id=object_id,
+                payload=item,
+            )
+
+            existing = self.ontology_service.get_object(mapping.object_type, object_id)
+            if existing:
+                props = dict(existing.properties)
+                props.update(properties)
+                from ontology_platform.ontology.schema import OntologyObject
+
+                self.ontology_service.store.update_object(
+                    OntologyObject(
+                        object_type=mapping.object_type,
+                        object_id=object_id,
+                        properties=props,
+                    )
+                )
+                updated += 1
+            else:
+                self.ontology_service.create_object(
+                    mapping.object_type, properties, object_id=object_id
+                )
+                created += 1
+
+        self.store.complete_run(
+            run_id,
+            status="completed",
+            records_captured=len(raw),
+            records_synced=created + updated,
+        )
+        return {"run_id": run_id, "created": created, "updated": updated, "total": len(raw)}
 
     def get_computer_use_task(self, connector_name: str) -> dict[str, Any]:
         """Build instructions for a Computer Use agent to execute capture."""

@@ -78,6 +78,31 @@ object_types:
       - name: building
         type: string
 
+  - name: Reservation
+    display_name: 预约记录
+    description: 样机预约时段记录
+    primary_key: id
+    properties:
+      - name: id
+        type: string
+        required: true
+      - name: prototype_id
+        type: string
+        required: true
+      - name: person_id
+        type: string
+        required: true
+      - name: start_date
+        type: string
+        required: true
+      - name: end_date
+        type: string
+        required: true
+      - name: status
+        type: enum
+        enum_values: [active, completed, cancelled]
+        required: true
+
 links:
   - name: belongs_to
     source_type: Prototype
@@ -96,6 +121,18 @@ links:
     target_type: Location
     cardinality: one
     description: 样机存放位置
+
+  - name: reserved_for
+    source_type: Reservation
+    target_type: Prototype
+    cardinality: one
+    description: 预约对应的样机
+
+  - name: reserved_by
+    source_type: Reservation
+    target_type: Person
+    cardinality: one
+    description: 预约人
 
 actions:
   - name: ReservePrototype
@@ -238,3 +275,55 @@ actions:
         type: string
         required: true
         description: 发送时间 ISO8601 或 YYYY-MM-DD
+
+  - name: TransferProject
+    display_name: 调拨项目
+    description: 将样机调拨到另一个项目
+    target_type: Prototype
+    requires_approval: false
+    allowed_roles: [operator, admin]
+    keywords: [调拨, 转移项目, transfer project]
+    parameters:
+      - name: project_id
+        type: string
+        required: true
+        description: 目标项目 ID
+
+  - name: TransferLocation
+    display_name: 转移库位
+    description: 将样机移动到另一个库位
+    target_type: Prototype
+    requires_approval: false
+    allowed_roles: [operator, admin]
+    keywords: [移库, 转移库位, transfer location]
+    parameters:
+      - name: location_id
+        type: string
+        required: true
+        description: 目标库位 ID
+
+  - name: StartMaintenance
+    display_name: 送修
+    description: 将样机置为维修中
+    target_type: Prototype
+    requires_approval: false
+    allowed_roles: [operator, admin]
+    keywords: [送修, 维修, maintenance]
+    parameters:
+      - name: reason
+        type: string
+        required: true
+        description: 维修原因
+
+  - name: CompleteMaintenance
+    display_name: 维修完成
+    description: 维修完成，恢复可用
+    target_type: Prototype
+    requires_approval: false
+    allowed_roles: [operator, admin]
+    keywords: [维修完成, 修好, complete maintenance]
+    parameters:
+      - name: notes
+        type: string
+        required: false
+        description: 维修备注
