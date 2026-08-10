@@ -315,6 +315,79 @@ class TestBatchApprovalAPI:
             assert item.status == "approved"
 
 
+class TestConnectorsAPI:
+    def test_list_connectors(self):
+        app = create_app(EXAMPLES_DIR)
+        client = TestClient(app)
+        res = client.get("/api/connectors")
+        assert res.status_code == 200
+        assert res.json()["count"] >= 1
+
+    def test_credentials_unconfigured(self, client):
+        res = client.get("/api/credentials")
+        assert res.status_code == 200
+        assert res.json()["configured"] is False
+
+    def test_credentials_crud(self, temp_dir):
+        db_path = temp_dir / "ops.db"
+        app = create_app(EXAMPLES_DIR, store_path=db_path)
+        client = TestClient(app)
+
+        create_res = client.post(
+            "/api/credentials",
+            json={
+                "name": "ERP",
+                "username": "ops",
+                "password": "secret",
+                "credential_id": "cred-test",
+                "login_url": "https://erp.example.com/login",
+            },
+        )
+        assert create_res.status_code == 200
+        assert create_res.json()["password_set"] is True
+        assert "password" not in create_res.json()
+
+        list_res = client.get("/api/credentials")
+        assert list_res.json()["count"] == 1
+
+        rotate_res = client.put(
+            "/api/credentials/cred-test/password",
+            json={"password": "new-secret"},
+        )
+        assert rotate_res.status_code == 200
+
+        delete_res = client.delete("/api/credentials/cred-test")
+        assert delete_res.status_code == 200
+
+    def test_connector_task_api(self, temp_dir):
+        import shutil
+
+        connectors_dir = temp_dir / "connectors"
+        shutil.copytree(EXAMPLES_DIR / "connectors", connectors_dir)
+        db_path = temp_dir / "ops.db"
+        app = create_app(EXAMPLES_DIR, store_path=db_path, connectors_dir=connectors_dir)
+        client = TestClient(app)
+        client.post(
+            "/api/credentials",
+            json={
+                "name": "ERP",
+                "username": "ops",
+                "password": "secret",
+                "credential_id": "cred-task",
+            },
+        )
+        connector = client.get("/api/connectors/prototype_erp").json()
+        connector["credential_ref"] = "cred-task"
+        client.put("/api/connectors/prototype_erp", json=connector)
+
+        task_res = client.post("/api/connectors/prototype_erp/task")
+        assert task_res.status_code == 200
+        task = task_res.json()
+        assert task["login"]["username"] == "ops"
+        assert task["login"]["password_provided"] is True
+        assert task["login"].get("password") is None
+
+
 class TestExamplesIntegration:
     def test_examples_loadable(self):
         app = create_app(EXAMPLES_DIR)
