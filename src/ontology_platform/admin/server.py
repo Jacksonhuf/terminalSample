@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ontology_platform.admin.manager import OntologyManager
+from ontology_platform.admin.llm_api import SaveLlmProfileRequest, SaveProxyConfigRequest, proxy_to_dict
 from ontology_platform.admin.connectors_api import (
     CreateCredentialRequest,
     RotatePasswordRequest,
@@ -76,6 +77,9 @@ def create_app(
     from ontology_platform.connector.credential_store import CredentialStore
     from ontology_platform.governance.audit import AuditLogEntry
 
+    from ontology_platform.llm.store import LlmConfigStore
+    from ontology_platform.llm.factory import test_llm_connection
+
     resolved_store_path = store_path or audit_path
     audit_logger = AuditLogger(resolved_store_path) if resolved_store_path else None
     approval_store = ApprovalStore(resolved_store_path) if resolved_store_path else None
@@ -87,6 +91,7 @@ def create_app(
     connectors_path = Path(connectors_dir) if connectors_dir else base_dir / "connectors"
     cred_db = credential_db_path or resolved_store_path
     credential_store = CredentialStore(cred_db) if cred_db else None
+    llm_store = LlmConfigStore(cred_db) if cred_db else None
     connector_mgr = build_connector_manager(
         connectors_path,
         Path(connector_db_path) if connector_db_path else None,
@@ -219,6 +224,7 @@ def create_app(
             ),
             "connectors_configured": connectors_path.exists(),
             "credentials_configured": credential_store is not None,
+            "llm_configured": llm_store is not None,
             "connectors_dir": str(connectors_path),
             "credential_db": str(cred_db) if cred_db else "",
             "audit_path": str(resolved_store_path) if resolved_store_path else "",
@@ -438,6 +444,145 @@ def create_app(
             )
         return task
 
+    @app.get("/api/llm/profiles")
+    def list_llm_profiles():
+        if llm_store is None:
+            return {"profiles": [], "configured": False, "message": "未配置 LLM 存储路径"}
+        profiles = llm_store.list_profiles(credential_store)
+        return {"profiles": [p.model_dump() for p in profiles], "count": len(profiles), "configured": True}
+
+    @app.get("/api/llm/profiles/{profile_id}")
+    def get_llm_profile(profile_id: str):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        row = llm_store._get_row(profile_id)
+        if row is None:
+            raise HTTPException(404, f"LLM profile not found: {profile_id}")
+        return llm_store._to_public(row, credential_store).model_dump()
+
+    @app.post("/api/llm/profiles")
+    def create_llm_profile(req: SaveLlmProfileRequest = Body()):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        try:
+            profile = llm_store.create_profile(
+                name=req.name,
+                profile_id=req.id or None,
+                provider=req.provider,
+                base_url=req.base_url,
+                model=req.model,
+                api_key_ref=req.api_key_ref,
+                planner_mode=req.planner_mode,
+                proxy_mode=req.proxy_mode,
+                temperature=req.temperature,
+                timeout_sec=req.timeout_sec,
+                max_tokens=req.max_tokens,
+                enabled=req.enabled,
+                is_default=req.is_default,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        runtime_platform["instance"] = None
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="LlmProfileCreated",
+                    target_id=profile.id,
+                    status="success",
+                    success=True,
+                    message=f"创建 LLM 配置 {profile.name}",
+                )
+            )
+        return profile.model_dump()
+
+    @app.put("/api/llm/profiles/{profile_id}")
+    def update_llm_profile(profile_id: str, req: SaveLlmProfileRequest = Body()):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        profile = llm_store.update_profile(
+            profile_id,
+            name=req.name,
+            provider=req.provider,
+            base_url=req.base_url,
+            model=req.model,
+            api_key_ref=req.api_key_ref,
+            planner_mode=req.planner_mode,
+            proxy_mode=req.proxy_mode,
+            temperature=req.temperature,
+            timeout_sec=req.timeout_sec,
+            max_tokens=req.max_tokens,
+            enabled=req.enabled,
+            is_default=req.is_default,
+        )
+        if profile is None:
+            raise HTTPException(404, f"LLM profile not found: {profile_id}")
+        runtime_platform["instance"] = None
+        return profile.model_dump()
+
+    @app.delete("/api/llm/profiles/{profile_id}")
+    def delete_llm_profile(profile_id: str):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        if not llm_store.delete_profile(profile_id):
+            raise HTTPException(404, f"LLM profile not found: {profile_id}")
+        runtime_platform["instance"] = None
+        return {"message": "deleted", "id": profile_id}
+
+    @app.post("/api/llm/profiles/{profile_id}/test")
+    def test_llm_profile(profile_id: str):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        profile = llm_store.get_profile(profile_id)
+        if profile is None:
+            raise HTTPException(404, f"LLM profile not found: {profile_id}")
+        result = test_llm_connection(profile, llm_store.get_proxy_config(), credential_store)
+        return result.model_dump()
+
+    @app.get("/api/llm/proxy")
+    def get_llm_proxy():
+        if llm_store is None:
+            return {"configured": False, "message": "未配置 LLM 存储路径"}
+        return {"configured": True, **proxy_to_dict(llm_store.get_proxy_config())}
+
+    @app.put("/api/llm/proxy")
+    def save_llm_proxy(req: SaveProxyConfigRequest = Body()):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        from ontology_platform.llm.schema import ProxyConfig
+
+        config = llm_store.save_proxy_config(ProxyConfig.model_validate(req.model_dump()))
+        runtime_platform["instance"] = None
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="LlmProxyUpdated",
+                    target_id="proxy",
+                    status="success",
+                    success=True,
+                    message="更新 LLM 代理配置",
+                )
+            )
+        return proxy_to_dict(config)
+
+    @app.get("/api/llm/active")
+    def get_active_llm():
+        if llm_store is None:
+            return {"configured": False}
+        profile = llm_store.get_default_profile()
+        if profile is None:
+            return {"configured": True, "active": None}
+        proxy_cfg = llm_store.get_proxy_config()
+        from ontology_platform.llm.proxy import resolve_proxy_used
+
+        return {
+            "configured": True,
+            "active": llm_store._to_public(llm_store._get_row(profile.id) or {}, credential_store).model_dump(),
+            "proxy": proxy_to_dict(proxy_cfg),
+            "proxy_will_be_used": resolve_proxy_used(profile, proxy_cfg),
+        }
+
     @app.get("/api/ontologies")
     def list_ontologies():
         return {"ontologies": manager.list_ontologies(), "directory": str(manager.directory)}
@@ -574,6 +719,10 @@ def create_app(
     @app.get("/connectors")
     def connectors_page():
         return FileResponse(STATIC_DIR / "connectors.html")
+
+    @app.get("/settings/llm")
+    def llm_settings_page():
+        return FileResponse(STATIC_DIR / "llm.html")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

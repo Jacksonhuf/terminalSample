@@ -57,6 +57,12 @@ class PrototypeApp:
     ) -> PrototypeApp:
         path = ontology_path or DEFAULT_ONTOLOGY
         cfg = config or AgentConfig()
+        if model is None and cfg.store_path:
+            from ontology_platform.llm.loader import load_llm_runtime
+
+            loaded_model, _ = load_llm_runtime(cfg)
+            if loaded_model is not None:
+                model = loaded_model
         platform = AgentPlatform.from_yaml(path, config=cfg, model=model)
         platform.graph = build_agent_graph(
             platform.service,

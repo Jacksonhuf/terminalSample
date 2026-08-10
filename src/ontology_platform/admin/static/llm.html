@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM 配置</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-brand"><span>◈</span> Ontology Admin</div>
+    <nav class="header-nav">
+      <a href="/" class="nav-btn">本体列表</a>
+      <a href="/editor" class="nav-btn">编辑器</a>
+      <a href="/visualize" class="nav-btn">可视化</a>
+      <a href="/operations" class="nav-btn">运营中心</a>
+      <a href="/connectors" class="nav-btn">数据连接</a>
+      <a href="/settings/llm" class="nav-btn active">LLM 配置</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title">LLM 配置</h1>
+        <p class="page-subtitle" id="status-info">配置模型、Planner 与公司网络代理</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="profiles" onclick="switchTab('profiles')">模型配置</button>
+      <button class="tab" data-tab="proxy" onclick="switchTab('proxy')">网络与代理</button>
+    </div>
+
+    <div id="panel-profiles" class="tab-panel active">
+      <div class="filter-bar">
+        <button class="btn btn-primary btn-sm" onclick="showProfileForm()">+ 新建模型</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadProfiles()">刷新</button>
+      </div>
+      <div class="card" id="profile-form" style="display:none; margin-bottom:16px">
+        <h3 class="section-title" id="profile-form-title">编辑模型</h3>
+        <div class="form-grid">
+          <label>ID（新建可选）<input id="p-id"></label>
+          <label>名称<input id="p-name" placeholder="内网 Qwen"></label>
+          <label>Provider
+            <select id="p-provider">
+              <option value="openai_compatible">openai_compatible</option>
+              <option value="openai">openai</option>
+              <option value="azure">azure</option>
+              <option value="anthropic">anthropic</option>
+            </select>
+          </label>
+          <label>Model<input id="p-model" placeholder="qwen2.5-72b"></label>
+          <label>Base URL<input id="p-base-url" placeholder="http://llm.internal.corp/v1"></label>
+          <label>API Key 凭据
+            <select id="p-api-key-ref"><option value="">（无 / 内网免鉴权）</option></select>
+          </label>
+          <label>Planner 模式
+            <select id="p-planner-mode"><option value="auto">auto</option><option value="llm">llm</option><option value="rule">rule</option></select>
+          </label>
+          <label>代理模式
+            <select id="p-proxy-mode">
+              <option value="inherit">继承全局</option>
+              <option value="bypass">不走代理（内网）</option>
+              <option value="use_proxy">强制走代理</option>
+            </select>
+          </label>
+          <label>Temperature<input id="p-temperature" type="number" step="0.1" value="0.2"></label>
+          <label>Timeout (秒)<input id="p-timeout" type="number" value="60"></label>
+          <label class="full"><input type="checkbox" id="p-default"> 设为默认模型</label>
+          <label class="full"><input type="checkbox" id="p-enabled" checked> 启用</label>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="saveProfile()">保存</button>
+          <button class="btn btn-secondary btn-sm" onclick="hideProfileForm()">取消</button>
+          <button class="btn btn-secondary btn-sm" id="p-test-btn" onclick="testProfile()">测试连接</button>
+        </div>
+        <pre id="test-output" class="code-block" style="display:none; margin-top:12px"></pre>
+      </div>
+      <div class="table-wrap" id="profiles-table"></div>
+    </div>
+
+    <div id="panel-proxy" class="tab-panel">
+      <div class="card">
+        <h3 class="section-title">公司代理设置</h3>
+        <div class="form-grid">
+          <label class="full"><input type="checkbox" id="proxy-enabled"> 启用 HTTP/HTTPS 代理</label>
+          <label>HTTP Proxy<input id="proxy-http" placeholder="http://proxy.corp.com:8080"></label>
+          <label>HTTPS Proxy<input id="proxy-https" placeholder="http://proxy.corp.com:8080"></label>
+          <label class="full">No Proxy 列表（逗号分隔）<input id="proxy-no-proxy" placeholder="localhost,127.0.0.1,.corp.internal"></label>
+          <label class="full"><input type="checkbox" id="proxy-internal-bypass" checked> 内网地址默认不走代理（inherit 模式生效）</label>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary btn-sm" onclick="saveProxy()">保存代理配置</button>
+        </div>
+        <p class="page-subtitle" style="margin-top:12px">内网部署模型请在模型配置中选择「不走代理（内网）」。</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    let editingProfileId = null;
+    const profileCache = {};
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('panel-' + name).classList.add('active');
+      if (name === 'profiles') loadProfiles();
+      if (name === 'proxy') loadProxy();
+    }
+
+    async function loadStatus() {
+      try {
+        const active = await api('/llm/active');
+        if (!active.configured) {
+          document.getElementById('status-info').textContent = '未配置存储路径，请使用 --store-path 启动';
+          return;
+        }
+        const name = active.active ? active.active.name : '（未配置默认模型）';
+        const proxyNote = active.active
+          ? (active.proxy_will_be_used ? '将使用代理' : '不走代理/直连')
+          : '';
+        document.getElementById('status-info').textContent = `当前默认: ${name} ${proxyNote}`;
+      } catch (e) {
+        document.getElementById('status-info').textContent = e.message;
+      }
+    }
+
+    async function loadCredentialOptions() {
+      const select = document.getElementById('p-api-key-ref');
+      const current = select.value;
+      select.innerHTML = '<option value="">（无 / 内网免鉴权）</option>';
+      try {
+        const data = await api('/credentials');
+        if (!data.configured) return;
+        data.credentials.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = `${c.name} (${c.id})`;
+          select.appendChild(opt);
+        });
+        select.value = current;
+      } catch (_) {}
+    }
+
+    async function loadProfiles() {
+      await loadCredentialOptions();
+      try {
+        const data = await api('/llm/profiles');
+        if (!data.configured) {
+          document.getElementById('profiles-table').innerHTML = `<div class="empty-state card">${escHtml(data.message || '')}</div>`;
+          return;
+        }
+        data.profiles.forEach(p => { profileCache[p.id] = p; });
+        if (!data.profiles.length) {
+          document.getElementById('profiles-table').innerHTML = '<div class="empty-state card">暂无模型配置</div>';
+          return;
+        }
+        document.getElementById('profiles-table').innerHTML = `
+          <table class="data-table">
+            <thead><tr>
+              <th>名称</th><th>Model</th><th>Base URL</th><th>Planner</th><th>代理</th><th>默认</th><th>操作</th>
+            </tr></thead>
+            <tbody>
+              ${data.profiles.map(p => `<tr>
+                <td>${escHtml(p.name)}</td>
+                <td>${escHtml(p.model)}</td>
+                <td>${escHtml(p.base_url)}</td>
+                <td>${escHtml(p.planner_mode)}</td>
+                <td>${escHtml(p.proxy_mode)}</td>
+                <td>${p.is_default ? '✓' : ''}</td>
+                <td>
+                  <button class="btn btn-secondary btn-sm" onclick="editProfile('${escHtml(p.id)}')">编辑</button>
+                  <button class="btn btn-secondary btn-sm" onclick="testProfileById('${escHtml(p.id)}')">测试</button>
+                  <button class="btn btn-secondary btn-sm" onclick="deleteProfile('${escHtml(p.id)}')">删除</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) {
+        document.getElementById('profiles-table').innerHTML = `<div class="empty-state card">${escHtml(e.message)}</div>`;
+      }
+      loadStatus();
+    }
+
+    function showProfileForm() {
+      editingProfileId = null;
+      document.getElementById('profile-form-title').textContent = '新建模型';
+      document.getElementById('p-id').value = '';
+      document.getElementById('p-id').disabled = false;
+      document.getElementById('p-name').value = '';
+      document.getElementById('p-model').value = '';
+      document.getElementById('p-base-url').value = '';
+      document.getElementById('p-api-key-ref').value = '';
+      document.getElementById('p-planner-mode').value = 'auto';
+      document.getElementById('p-proxy-mode').value = 'bypass';
+      document.getElementById('p-temperature').value = '0.2';
+      document.getElementById('p-timeout').value = '60';
+      document.getElementById('p-default').checked = false;
+      document.getElementById('p-enabled').checked = true;
+      document.getElementById('test-output').style.display = 'none';
+      document.getElementById('profile-form').style.display = 'block';
+    }
+
+    function hideProfileForm() { document.getElementById('profile-form').style.display = 'none'; }
+
+    function editProfile(id) {
+      const p = profileCache[id];
+      if (!p) return;
+      editingProfileId = id;
+      document.getElementById('profile-form-title').textContent = `编辑: ${p.name}`;
+      document.getElementById('p-id').value = p.id;
+      document.getElementById('p-id').disabled = true;
+      document.getElementById('p-name').value = p.name;
+      document.getElementById('p-provider').value = p.provider;
+      document.getElementById('p-model').value = p.model;
+      document.getElementById('p-base-url').value = p.base_url;
+      document.getElementById('p-api-key-ref').value = p.api_key_ref || '';
+      document.getElementById('p-planner-mode').value = p.planner_mode;
+      document.getElementById('p-proxy-mode').value = p.proxy_mode;
+      document.getElementById('p-temperature').value = p.temperature;
+      document.getElementById('p-timeout').value = p.timeout_sec;
+      document.getElementById('p-default').checked = p.is_default;
+      document.getElementById('p-enabled').checked = p.enabled;
+      document.getElementById('profile-form').style.display = 'block';
+    }
+
+    function profilePayload() {
+      return {
+        id: document.getElementById('p-id').value.trim(),
+        name: document.getElementById('p-name').value.trim(),
+        provider: document.getElementById('p-provider').value,
+        model: document.getElementById('p-model').value.trim(),
+        base_url: document.getElementById('p-base-url').value.trim(),
+        api_key_ref: document.getElementById('p-api-key-ref').value,
+        planner_mode: document.getElementById('p-planner-mode').value,
+        proxy_mode: document.getElementById('p-proxy-mode').value,
+        temperature: parseFloat(document.getElementById('p-temperature').value || '0.2'),
+        timeout_sec: parseInt(document.getElementById('p-timeout').value || '60', 10),
+        is_default: document.getElementById('p-default').checked,
+        enabled: document.getElementById('p-enabled').checked,
+        max_tokens: 4096,
+      };
+    }
+
+    async function saveProfile() {
+      const payload = profilePayload();
+      if (!payload.name || !payload.model) { toast('请填写名称和 Model', 'error'); return; }
+      try {
+        if (editingProfileId) {
+          await api(`/llm/profiles/${editingProfileId}`, { method: 'PUT', body: JSON.stringify(payload) });
+        } else {
+          await api('/llm/profiles', { method: 'POST', body: JSON.stringify(payload) });
+        }
+        toast('已保存');
+        hideProfileForm();
+        loadProfiles();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function deleteProfile(id) {
+      if (!confirm(`删除模型 ${id}?`)) return;
+      try {
+        await api(`/llm/profiles/${id}`, { method: 'DELETE' });
+        toast('已删除');
+        loadProfiles();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function testProfile() {
+      const id = editingProfileId || document.getElementById('p-id').value.trim();
+      if (!id) { toast('请先保存模型', 'error'); return; }
+      await testProfileById(id);
+    }
+
+    async function testProfileById(id) {
+      try {
+        const result = await api(`/llm/profiles/${id}/test`, { method: 'POST' });
+        const out = document.getElementById('test-output');
+        out.style.display = 'block';
+        out.textContent = JSON.stringify(result, null, 2);
+        toast(result.success ? '连接成功' : result.message, result.success ? 'success' : 'error');
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function loadProxy() {
+      try {
+        const data = await api('/llm/proxy');
+        if (!data.configured) return;
+        document.getElementById('proxy-enabled').checked = !!data.enabled;
+        document.getElementById('proxy-http').value = data.http_proxy || '';
+        document.getElementById('proxy-https').value = data.https_proxy || '';
+        document.getElementById('proxy-no-proxy').value = data.no_proxy || '';
+        document.getElementById('proxy-internal-bypass').checked = data.internal_bypass_proxy !== false;
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function saveProxy() {
+      const payload = {
+        enabled: document.getElementById('proxy-enabled').checked,
+        http_proxy: document.getElementById('proxy-http').value.trim(),
+        https_proxy: document.getElementById('proxy-https').value.trim(),
+        no_proxy: document.getElementById('proxy-no-proxy').value.trim(),
+        internal_bypass_proxy: document.getElementById('proxy-internal-bypass').checked,
+      };
+      try {
+        await api('/llm/proxy', { method: 'PUT', body: JSON.stringify(payload) });
+        toast('代理配置已保存');
+        loadStatus();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    loadProfiles();
+  </script>
+</body>
+</html>

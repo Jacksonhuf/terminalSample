@@ -104,7 +104,8 @@ def main() -> None:
     if audit_path:
         print(f"  Audit / integrations DB: {audit_path}")
     print(f"  Operations console: http://localhost:{args.port}/operations")
-    print(f"  Data connectors: http://localhost:{args.port}/connectors\n")
+    print(f"  Data connectors: http://localhost:{args.port}/connectors")
+    print(f"  LLM settings: http://localhost:{args.port}/settings/llm\n")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 
