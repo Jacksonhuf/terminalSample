@@ -4,10 +4,35 @@
         <h1 class="page-title">本体管理</h1>
         <p class="page-subtitle" id="dir-info">加载中...</p>
       </div>
-      <button class="btn btn-primary" onclick="showCreateModal()">+ 新建本体</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="downloadImportTemplate()">下载 Excel 模板</button>
+        <button class="btn btn-secondary" onclick="showImportModal()">导入 Excel</button>
+        <button class="btn btn-primary" onclick="showCreateModal()">+ 新建本体</button>
+      </div>
     </div>
 
     <div class="card-grid" id="ontology-list"></div>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" id="import-modal">
+    <div class="modal">
+      <h2>导入本体 (Excel)</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
+        请先<a href="#" onclick="downloadImportTemplate();return false;">下载模板</a>，按工作表填写本体、对象类型、属性、关系和动作后上传。
+      </p>
+      <div class="form-group">
+        <label>Excel 文件 (.xlsx)</label>
+        <input type="file" id="import-file" accept=".xlsx,.xlsm">
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="import-overwrite"> 覆盖已有同名本体</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="hideImportModal()">取消</button>
+        <button class="btn btn-primary" onclick="importOntology()">导入</button>
+      </div>
+    </div>
   </div>
 
   <!-- Create Modal -->

@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Body, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Body, Request, UploadFile, File
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ontology_platform.admin.manager import OntologyManager
+from ontology_platform.admin.excel_import import (
+    ExcelImportError,
+    build_template_bytes,
+    import_ontology_from_excel,
+)
 from ontology_platform.admin.llm_api import SaveLlmProfileRequest, SaveProxyConfigRequest, proxy_to_dict
 from ontology_platform.admin.connectors_api import (
     CreateCredentialRequest,
@@ -764,6 +769,27 @@ def create_app(
     @app.get("/api/ontologies")
     def list_ontologies():
         return {"ontologies": manager.list_ontologies(), "directory": str(manager.directory)}
+
+    @app.get("/api/ontologies/import/template")
+    def download_ontology_import_template():
+        content = build_template_bytes()
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="ontology_import_template.xlsx"'},
+        )
+
+    @app.post("/api/ontologies/import")
+    async def import_ontology(file: UploadFile = File(...), overwrite: bool = False):
+        if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+            raise HTTPException(400, "请上传 .xlsx 格式的 Excel 文件")
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "上传文件为空")
+        try:
+            return import_ontology_from_excel(data, manager, overwrite=overwrite)
+        except ExcelImportError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/api/ontologies/{name}")
     def get_ontology(name: str):

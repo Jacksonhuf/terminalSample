@@ -48,6 +48,47 @@ export async function mount(container, params, ctx) {
       document.getElementById('create-modal').classList.remove('open');
     }
 
+    function showImportModal() {
+      document.getElementById('import-file').value = '';
+      document.getElementById('import-overwrite').checked = false;
+      document.getElementById('import-modal').classList.add('open');
+    }
+
+    function hideImportModal() {
+      document.getElementById('import-modal').classList.remove('open');
+    }
+
+    function downloadImportTemplate() {
+      window.location.href = '/api/ontologies/import/template';
+    }
+
+    async function importOntology() {
+      const input = document.getElementById('import-file');
+      const file = input.files?.[0];
+      if (!file) return toast('请选择 Excel 文件', 'error');
+
+      const overwrite = document.getElementById('import-overwrite').checked;
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const res = await fetch(`/api/ontologies/import?overwrite=${overwrite ? 'true' : 'false'}`, {
+          method: 'POST',
+          body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || res.statusText);
+        }
+        hideImportModal();
+        toast(`导入成功：${data.ontology.name}`);
+        loadOntologies();
+        navigate(`/admin/ontologies/${data.ontology.name}/edit`);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
     async function createOntology() {
       const name = document.getElementById('new-name').value.trim();
       if (!name) return toast('请输入名称', 'error');
@@ -81,6 +122,15 @@ export async function mount(container, params, ctx) {
 
     loadOntologies();
 
-  Object.assign(window, { createOntology, deleteOntology, showCreateModal, hideCreateModal, loadOntologies, openOntology });
-  return () => { delete window.createOntology; delete window.deleteOntology; delete window.hideCreateModal; delete window.loadOntologies; delete window.openOntology; delete window.showCreateModal; };
+  Object.assign(window, {
+    createOntology, deleteOntology, downloadImportTemplate, hideCreateModal,
+    hideImportModal, importOntology, loadOntologies, openOntology,
+    showCreateModal, showImportModal,
+  });
+  return () => {
+    delete window.createOntology; delete window.deleteOntology; delete window.downloadImportTemplate;
+    delete window.hideCreateModal; delete window.hideImportModal; delete window.importOntology;
+    delete window.loadOntologies; delete window.openOntology; delete window.showCreateModal;
+    delete window.showImportModal;
+  };
 }
