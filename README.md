@@ -64,6 +64,7 @@ pip install -e ".[dev]"
 | `checkpoint` | 与默认安装相同（SQLite checkpoint）；保留以兼容旧命令 |
 | `studio` | LangGraph Studio 调试 |
 | `postgres` | PostgreSQL 持久化 |
+| `capture` | LLM Computer Use 采集（Playwright 浏览器） |
 
 ### 本机业务演示（推荐）
 
@@ -335,7 +336,42 @@ export ONTOLOGY_SMTP_HOST=mail.example.com
 
 ### Data Connector（Computer Use → SQL → Ontology）
 
-从只有 Web 界面的外部系统采集数据，先写入 SQL 暂存区，再同步到本体：
+从只有 Web 界面的外部系统采集数据，先写入 SQL 暂存区，再同步到本体。
+
+#### LLM Computer Use 自动采集（推荐）
+
+配置连接器 + 凭据 + LLM 后，可一键或定时执行完整采集链路（浏览器操作 → ingest → sync）：
+
+```bash
+# 安装浏览器依赖（真实 LLM 采集需要）
+pip install -e ".[capture]"
+playwright install chromium
+
+# 手工触发采集（使用 Admin 配置的 LLM）
+ontology-connector run prototype_erp \
+  --db ./data/connector.db \
+  --credential-db ./data/demo.db \
+  --ontology examples/prototype_ontology.yaml \
+  --ontology-db ./data/demo.db
+
+# 演示模式（使用 examples/captures 样例数据，无需 LLM/浏览器）
+ontology-connector run prototype_erp --mock --db ./data/connector.db
+
+# 定时采集守护进程（按连接器 schedule 配置轮询）
+ontology-connector daemon --interval 60 \
+  --db ./data/connector.db \
+  --credential-db ./data/demo.db \
+  --ontology examples/prototype_ontology.yaml \
+  --ontology-db ./data/demo.db
+```
+
+Admin **数据连接** 页面（`/admin/integration/connectors`）：
+
+- **立即采集** — 调用已配置 LLM + Playwright 执行采集
+- **演示采集 (Mock)** — 使用样例 JSON，适合本机演示
+- **启用定时采集** — 设置 `interval_sec`，配合 `ontology-connector daemon` 无人值守运行
+
+#### 手动分步流程（兼容旧方式）
 
 ```bash
 # 1. 生成 Computer Use 采集任务（含 run_id 与操作说明）
