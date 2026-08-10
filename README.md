@@ -98,6 +98,7 @@ ontology-admin --port 8080
 | 审计日志 | http://localhost:8080/api/audit-logs | 需 `--store-path` 配置数据库 |
 | 运营中心 | http://localhost:8080/operations | 审计 / 审批 / 样机看板 / 消息 / 跟催 |
 | 数据连接 | http://localhost:8080/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
+| LLM 配置 | http://localhost:8080/settings/llm | 模型、代理、内网 bypass 开关 |
 
 启动时指定数据路径以启用运营功能：
 

@@ -53,13 +53,19 @@ def main() -> None:
         store_path=args.store,
         thread_id=args.thread_id,
     )
+    model = None
+    if config.store_path:
+        from ontology_platform.llm.loader import load_llm_runtime
+
+        apply_planner = args.planner == "rule"
+        model, _ = load_llm_runtime(config, apply_planner_mode=apply_planner)
 
     if args.resume:
-        _resume_only(args, config)
+        _resume_only(args, config, model)
         return
 
     if args.app == "prototype" and not args.ontology:
-        app = PrototypeApp.create(config=config)
+        app = PrototypeApp.create(config=config, model=model)
         if args.seed:
             app.seed()
             print("✅ Prototype data seeded.\n")
@@ -69,7 +75,7 @@ def main() -> None:
         platform = app.platform
     else:
         ontology_path = args.ontology or str(EXAMPLES_DIR / "demo_ontology.yaml")
-        platform = AgentPlatform.from_yaml(ontology_path, config=config)
+        platform = AgentPlatform.from_yaml(ontology_path, config=config, model=model)
         if args.seed:
             platform.seed_demo_data()
             print("✅ Demo data seeded.\n")
@@ -112,12 +118,12 @@ def main() -> None:
             print("(输入 approve/批准 或 reject/拒绝 继续)\n")
 
 
-def _resume_only(args, config: AgentConfig) -> None:
+def _resume_only(args, config: AgentConfig, model=None) -> None:
     if args.app == "prototype" and not args.ontology:
-        app = PrototypeApp.create(config=config)
+        app = PrototypeApp.create(config=config, model=model)
     else:
         ontology_path = args.ontology or str(EXAMPLES_DIR / "demo_ontology.yaml")
-        app = AgentPlatform.from_yaml(ontology_path, config=config)
+        app = AgentPlatform.from_yaml(ontology_path, config=config, model=model)
     approved = args.resume == "approve"
     platform = app.platform if hasattr(app, "platform") else app
     result = platform.resume(approved=approved, thread_id=args.thread_id)

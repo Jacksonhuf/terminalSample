@@ -39,14 +39,19 @@ def _build_app():
         enable_approval_flow=True,
         enable_governance=True,
     )
+    model = None
+    if store_path:
+        from ontology_platform.llm.loader import load_llm_runtime
+
+        model, _ = load_llm_runtime(config)
 
     if app_name == "demo":
-        platform = AgentPlatform.from_yaml(EXAMPLES_DIR / "demo_ontology.yaml", config=config)
+        platform = AgentPlatform.from_yaml(EXAMPLES_DIR / "demo_ontology.yaml", config=config, model=model)
         if os.getenv("ONTOLOGY_SEED", "true").lower() == "true":
             platform.seed_demo_data()
         return platform, "demo"
 
-    app = PrototypeApp.create(config=config)
+    app = PrototypeApp.create(config=config, model=model)
     if os.getenv("ONTOLOGY_SEED", "true").lower() == "true":
         app.seed()
     return app.platform, "prototype"
