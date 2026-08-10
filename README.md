@@ -53,7 +53,7 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-默认安装已包含 **Chainlit 对话界面**（`chainlit`）与 **LangGraph 审批 checkpoint 持久化**（`langgraph-checkpoint-sqlite`），可直接运行 `chainlit run chainlit_app.py` 与审批工作台。
+默认安装已包含 **Chainlit 对话界面**（`chainlit`）、**LangGraph 审批 checkpoint 持久化**（`langgraph-checkpoint-sqlite`）与 **Excel 本体导入**（`openpyxl`），可直接运行 `chainlit run chainlit_app.py`、审批工作台与 Admin Excel 导入。
 
 可选 extras：
 
@@ -86,7 +86,7 @@ ontology-admin \
   --port 8080
 ```
 
-打开 http://localhost:8080/operations（样机看板、审批工作台、审计日志）。
+打开 http://localhost:8080/admin（统一运营后台，左侧菜单切换各功能）。
 
 **3. 终端 B — 启动对话界面**：
 
@@ -105,11 +105,12 @@ chainlit run chainlit_app.py
 | 3 | `样机看板统计` | 运营指标汇总 |
 | 4 | `预约 SN-2024-003` | 审批门禁（弹出批准/拒绝按钮） |
 
-批准后切换到运营中心，展示看板变化与审计日志。可选补充页面：
+批准后切换到运营中心（`/admin/operations/approvals`），展示看板变化与审计日志。可选补充页面：
 
-- http://localhost:8080/visualize — 本体关系图
-- http://localhost:8080/connectors — 数据采集配置
-- http://localhost:8080/settings/llm — LLM 配置（有内网模型时可现场演示）
+- http://localhost:8080/admin/ontologies — 本体列表（新建 / 删除 / Excel 导入）
+- http://localhost:8080/admin/ontologies/prototype/graph — 本体关系图
+- http://localhost:8080/admin/integration/connectors — 数据采集配置
+- http://localhost:8080/admin/settings/llm — LLM 配置（有内网模型时可现场演示）
 
 > **提示**：若 `ontology-admin` / `chainlit` 命令找不到，改用 `python3 -m ontology_platform.admin` 与 `python3 -m chainlit run chainlit_app.py`。Admin 仅供本机/内网演示，勿暴露到公网（当前无登录鉴权）。
 
@@ -155,27 +156,71 @@ chainlit run chainlit_app.py
 
 ```bash
 ontology-admin --port 8080
-# 指定目录：ontology-admin --dir ./my_ontologies --port 8080
+# 指定本体 YAML 目录：ontology-admin --dir ./my_ontologies --port 8080
 ```
 
-| 页面 | 地址 | 功能 |
+**统一入口**：http://localhost:8080/admin（左侧菜单 + `/admin/*` 路由，单页应用无需整页刷新）。旧路径（如 `/operations`、`/editor`、`/visualize`）会自动 302 重定向。
+
+| 模块 | 地址 | 功能 |
 |------|------|------|
-| 本体列表 | http://localhost:8080/ | 查看/新建本体 |
-| 编辑器 | http://localhost:8080/editor | 编辑对象/关系/动作，保存 YAML |
-| 可视化 | http://localhost:8080/visualize | 交互式本体图谱 |
-| 审计日志 | http://localhost:8080/api/audit-logs | 需 `--store-path` 配置数据库 |
-| 运营中心 | http://localhost:8080/admin/operations/dashboard | 审计 / 审批 / 样机看板 / 消息 / 跟催 |
-| 数据连接 | http://localhost:8080/admin/integration/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
-| 数据映射 | http://localhost:8080/admin/integration/mappings/discover | 浏览暂存数据、配置字段映射、同步到 Ontology |
-| LLM 配置 | http://localhost:8080/admin/settings/llm | 模型、代理、内网 bypass 开关 |
+| 本体列表 | `/admin/ontologies` | 查看 / 新建 / 删除本体 |
+| 本体编辑器 | `/admin/ontologies/{name}/edit` | 编辑对象类型、属性、关系、动作，保存 YAML |
+| 本体图谱 | `/admin/ontologies/{name}/graph` | 交互式关系可视化 |
+| 运营中心 | `/admin/operations/dashboard` | 样机看板、审批、审计、消息、跟催 |
+| 数据连接 | `/admin/integration/connectors` | Connector 配置、凭据、Computer Use 任务 |
+| 数据映射 | `/admin/integration/mappings/discover` | 暂存数据浏览、字段映射、同步到 Ontology |
+| LLM 配置 | `/admin/settings/llm` | 模型、代理、内网 bypass |
 
-> 统一入口：http://localhost:8080/admin（左侧菜单切换各功能，无需整页刷新）。旧路径（如 `/operations`）会自动重定向。
-
-启动时指定数据路径以启用运营功能（与 Chainlit 共用同一路径）：
+启动时指定数据路径以启用运营与集成功能（与 Chainlit 共用同一路径）：
 
 ```bash
-ontology-admin --port 8080 --store-path ./data/demo.db --ontology-db ./data/demo.db
+ontology-admin \
+  --port 8080 \
+  --store-path ./data/demo.db \
+  --ontology-db ./data/demo.db \
+  --connector-db ./data/connector.db
 ```
+
+#### Excel 批量导入本体
+
+适合从零搭建或批量维护本体结构，无需手写 YAML：
+
+1. 打开 **本体列表** → 点击 **「下载 Excel 模板」**
+2. 按工作表填写：`ontology`（元数据）、`object_types`、`properties`、`links`、`actions`、`action_params`
+3. 点击 **「导入 Excel」** 上传 `.xlsx`；若同名本体已存在，可勾选 **覆盖已有同名本体**
+
+也可通过 API：
+
+```bash
+# 下载模板（含示例行与填写说明）
+curl -OJ http://localhost:8080/api/ontologies/import/template
+
+# 导入
+curl -X POST "http://localhost:8080/api/ontologies/import?overwrite=false" \
+  -F "file=@my_ontology.xlsx"
+```
+
+导入校验包括：对象类型引用、关系端点、动作目标类型、动作参数归属等；通过后写入 `{name}.yaml`（目录由 `--dir` 指定，默认 `examples/`）。
+
+#### 本体编辑器说明
+
+- **概览**：修改版本、描述
+- **对象类型 / 关系 / 动作**：支持添加、编辑、删除（编辑后需点顶部 **保存** 写入文件）
+- **JSON**：直接编辑完整本体 JSON 并应用
+
+相关 REST API：`GET/POST/PUT/DELETE /api/ontologies`、`/api/ontologies/{name}/object-types` 等。
+
+| 页面（旧，仍可用） | 重定向至 |
+|-------------------|----------|
+| `/` | `/admin` |
+| `/editor` | `/admin/ontologies/edit` |
+| `/visualize` | `/admin/ontologies/graph` |
+| `/operations` | `/admin/operations/dashboard` |
+| `/connectors` | `/admin/integration/connectors` |
+| `/mappings` | `/admin/integration/mappings/discover` |
+| `/settings/llm` | `/admin/settings/llm` |
+
+审计日志 API：`GET /api/audit-logs`（需 `--store-path`）。
 
 ### LangGraph Studio（编排调试）
 
@@ -254,7 +299,7 @@ LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`（默认安装
 
 ```bash
 ontology-admin --store-path ./data/demo.db --ontology-db ./data/demo.db --port 8080
-# http://localhost:8080/operations → 样机看板 / 审批工作台（支持批量批准）
+# http://localhost:8080/admin/operations/approvals（支持批量批准）
 ```
 
 ### Outbound Channels（IM / 邮件 / 跟催）
@@ -338,7 +383,7 @@ src/ontology_platform/
 ├── governance/        # 审计日志 + RBAC 策略
 ├── platform.py        # AgentPlatform 入口
 ├── apps/prototype.py  # 样机管理应用
-├── admin/             # 本体管理 Web UI
+├── admin/             # 本体管理 Web UI（SPA、Excel 导入）
 └── chat/              # Chainlit 辅助
 chainlit_app.py        # Chainlit 入口
 langgraph_studio.py    # LangGraph Studio 入口
@@ -378,5 +423,5 @@ pytest   # 含 connector 测试
 - [x] 审批流（LangGraph interrupt）
 - [x] SQLite 持久化
 - [x] Chainlit 对话前端
-- [x] 本体管理 & 可视化 UI
+- [x] 本体管理 & 可视化 UI（统一 Admin Shell、Excel 导入）
 - [x] Action 审计 + RBAC
