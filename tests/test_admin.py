@@ -148,9 +148,18 @@ class TestAdminAPI:
 
     def test_pages_load(self, client):
         assert client.get("/").status_code == 200
-        assert client.get("/editor").status_code == 200
-        assert client.get("/visualize").status_code == 200
-        assert client.get("/operations").status_code == 200
+        assert client.get("/admin/ontologies").status_code == 200
+        editor = client.get("/editor", follow_redirects=False)
+        assert editor.status_code in (200, 302)
+        if editor.status_code == 302:
+            assert editor.headers["location"] == "/admin/ontologies/edit"
+        else:
+            assert "shell.js" in editor.text
+        visualize = client.get("/visualize", follow_redirects=False)
+        assert visualize.status_code in (200, 302)
+        assert client.get("/admin/operations/dashboard").status_code == 200
+        operations = client.get("/operations", follow_redirects=False)
+        assert operations.status_code in (200, 302)
 
 
 class TestOperationsAPI:

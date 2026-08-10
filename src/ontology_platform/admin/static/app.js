@@ -30,6 +30,10 @@ function escHtml(str) {
   return d.innerHTML;
 }
 
+function escAttr(str) {
+  return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function propertyTypeOptions(selected) {
   const types = ['string', 'integer', 'float', 'boolean', 'datetime', 'enum'];
   return types.map(t =>

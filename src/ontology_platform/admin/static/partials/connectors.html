@@ -1,0 +1,66 @@
+<div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title">数据连接</h1>
+        <p class="page-subtitle" id="status-info">配置 Computer Use 采集目标与登录凭据</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="connectors" onclick="switchTab('connectors')">连接器</button>
+      <button class="tab" data-tab="credentials" onclick="switchTab('credentials')">凭据库</button>
+    </div>
+
+    <div id="panel-connectors" class="tab-panel active">
+      <div class="filter-bar">
+        <button class="btn btn-primary btn-sm" onclick="showConnectorForm()">+ 新建连接器</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadConnectors()">刷新</button>
+      </div>
+      <div class="card" id="connector-form" style="display:none; margin-bottom:16px">
+        <h3 class="section-title" id="connector-form-title">编辑连接器</h3>
+        <div class="form-grid">
+          <label>名称<input id="c-name" placeholder="prototype_erp"></label>
+          <label>模式
+            <select id="c-mode"><option value="computer_use">computer_use</option><option value="file">file</option></select>
+          </label>
+          <label>目标 URL<input id="c-source-url" placeholder="https://erp.example.com/list"></label>
+          <label>凭据
+            <select id="c-credential-ref"><option value="">（无）</option></select>
+          </label>
+          <label>登录页 URL<input id="c-login-url" placeholder="https://erp.example.com/login"></label>
+          <label class="full">描述<input id="c-description"></label>
+          <label class="full">采集说明<textarea id="c-instructions" rows="5"></textarea></label>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="saveConnector()">保存</button>
+          <button class="btn btn-secondary btn-sm" onclick="hideConnectorForm()">取消</button>
+          <button class="btn btn-secondary btn-sm" id="c-task-btn" onclick="generateTask()">生成采集任务</button>
+        </div>
+        <pre id="task-output" class="code-block" style="display:none; margin-top:12px"></pre>
+      </div>
+      <div class="table-wrap" id="connectors-table"></div>
+    </div>
+
+    <div id="panel-credentials" class="tab-panel">
+      <div class="filter-bar">
+        <button class="btn btn-primary btn-sm" onclick="showCredentialForm()">+ 新建凭据</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadCredentials()">刷新</button>
+      </div>
+      <div class="card" id="credential-form" style="display:none; margin-bottom:16px">
+        <h3 class="section-title" id="credential-form-title">新建凭据</h3>
+        <div class="form-grid">
+          <label>ID（可选）<input id="cred-id" placeholder="cred-erp-prod"></label>
+          <label>显示名称<input id="cred-name" placeholder="样机 ERP 生产账号"></label>
+          <label>用户名<input id="cred-username"></label>
+          <label>密码<input id="cred-password" type="password" autocomplete="new-password"></label>
+          <label>登录页 URL<input id="cred-login-url" placeholder="https://erp.example.com/login"></label>
+          <label class="full">备注<input id="cred-notes"></label>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="saveCredential()">保存</button>
+          <button class="btn btn-secondary btn-sm" onclick="hideCredentialForm()">取消</button>
+        </div>
+      </div>
+      <div class="table-wrap" id="credentials-table"></div>
+    </div>
+  </div>

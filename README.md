@@ -164,10 +164,12 @@ ontology-admin --port 8080
 | 编辑器 | http://localhost:8080/editor | 编辑对象/关系/动作，保存 YAML |
 | 可视化 | http://localhost:8080/visualize | 交互式本体图谱 |
 | 审计日志 | http://localhost:8080/api/audit-logs | 需 `--store-path` 配置数据库 |
-| 运营中心 | http://localhost:8080/operations | 审计 / 审批 / 样机看板 / 消息 / 跟催 |
-| 数据连接 | http://localhost:8080/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
-| 数据映射 | http://localhost:8080/mappings | 浏览暂存数据、配置字段映射、同步到 Ontology |
-| LLM 配置 | http://localhost:8080/settings/llm | 模型、代理、内网 bypass 开关 |
+| 运营中心 | http://localhost:8080/admin/operations/dashboard | 审计 / 审批 / 样机看板 / 消息 / 跟催 |
+| 数据连接 | http://localhost:8080/admin/integration/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
+| 数据映射 | http://localhost:8080/admin/integration/mappings/discover | 浏览暂存数据、配置字段映射、同步到 Ontology |
+| LLM 配置 | http://localhost:8080/admin/settings/llm | 模型、代理、内网 bypass 开关 |
+
+> 统一入口：http://localhost:8080/admin（左侧菜单切换各功能，无需整页刷新）。旧路径（如 `/operations`）会自动重定向。
 
 启动时指定数据路径以启用运营功能（与 Chainlit 共用同一路径）：
 
@@ -320,7 +322,7 @@ Connector 定义见 `examples/connectors/`，采集样例见 `examples/captures/
 
 ```bash
 ontology-admin --store-path ./data/demo.db --connector-db ./data/connector.db --port 8080
-# http://localhost:8080/mappings
+# http://localhost:8080/admin/integration/mappings/discover
 ```
 
 映射配置存储在 `mapping.db`（默认与 connector 库同目录）。同一 `(connector, record_type)` 仅允许一个 `active` 映射；未配置 active 映射时，回退使用 Connector YAML 中的 `record_mappings`。

@@ -1,0 +1,114 @@
+<div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title" id="page-title">本体编辑器</h1>
+        <p class="page-subtitle" id="page-subtitle">选择或加载一个本体</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <select id="ontology-select" onchange="switchOntology(this.value)" style="padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+          <option value="">选择本体...</option>
+        </select>
+        <button class="btn btn-secondary" onclick="viewGraph()">可视化</button>
+        <button class="btn btn-primary" onclick="saveOntology()">保存</button>
+      </div>
+    </div>
+
+    <div id="editor-content" style="display:none">
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">概览</button>
+        <button class="tab" data-tab="object-types">对象类型</button>
+        <button class="tab" data-tab="links">关系</button>
+        <button class="tab" data-tab="actions">动作</button>
+        <button class="tab" data-tab="json">JSON</button>
+      </div>
+
+      <!-- Overview -->
+      <div class="tab-panel active" id="panel-overview">
+        <div class="card">
+          <div class="form-row">
+            <div class="form-group">
+              <label>名称</label>
+              <input id="ont-name" readonly>
+            </div>
+            <div class="form-group">
+              <label>版本</label>
+              <input id="ont-version">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>描述</label>
+            <textarea id="ont-desc" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Object Types -->
+      <div class="tab-panel" id="panel-object-types">
+        <div class="toolbar" style="margin-bottom:12px">
+          <h3 style="font-size:14px">对象类型 (Object Types)</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddObjectType()">+ 添加</button>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>显示名</th><th>属性</th><th>主键</th><th>操作</th></tr>
+            </thead>
+            <tbody id="object-types-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Links -->
+      <div class="tab-panel" id="panel-links">
+        <div class="toolbar" style="margin-bottom:12px">
+          <h3 style="font-size:14px">关系 (Links)</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddLink()">+ 添加</button>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>源类型</th><th>目标类型</th><th>基数</th><th>描述</th><th>操作</th></tr>
+            </thead>
+            <tbody id="links-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="tab-panel" id="panel-actions">
+        <div class="toolbar" style="margin-bottom:12px">
+          <h3 style="font-size:14px">动作 (Actions)</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddAction()">+ 添加</button>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>显示名</th><th>目标类型</th><th>审批</th><th>参数</th><th>操作</th></tr>
+            </thead>
+            <tbody id="actions-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- JSON -->
+      <div class="tab-panel" id="panel-json">
+        <div class="card">
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">直接编辑 JSON 并保存</p>
+          <textarea id="json-editor" rows="30" style="font-family:monospace;font-size:12px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:12px"></textarea>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary" onclick="applyJson()">应用 JSON</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="empty-state" class="empty-state card">
+      <h3>请选择一个本体</h3>
+      <p>从上方下拉框选择，或返回<a href="/">本体列表</a>创建新的</p>
+    </div>
+  </div>
+
+  <!-- Generic Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal" id="modal-body"></div>
+  </div>

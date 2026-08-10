@@ -224,6 +224,7 @@ class TestMappingAdminApi:
         assert sync.json()["synced"] == 2
 
     def test_mappings_page(self, admin_client: TestClient):
-        resp = admin_client.get("/mappings")
+        resp = admin_client.get("/admin/integration/mappings/discover", follow_redirects=False)
         assert resp.status_code == 200
-        assert "数据映射工作台" in resp.text
+        assert "Ontology Platform" in resp.text
+        assert "shell.js" in resp.text

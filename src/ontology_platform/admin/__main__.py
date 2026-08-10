@@ -99,13 +99,14 @@ def main() -> None:
         credential_db_path=credential_db,
         connector_db_path=connector_db,
     )
-    print(f"\n  Ontology Admin UI: http://localhost:{args.port}")
+    print(f"\n  Ontology Admin UI: http://localhost:{args.port}/admin")
     print(f"  Ontology directory: {args.dir}")
     if audit_path:
         print(f"  Audit / integrations DB: {audit_path}")
-    print(f"  Operations console: http://localhost:{args.port}/operations")
-    print(f"  Data connectors: http://localhost:{args.port}/connectors")
-    print(f"  LLM settings: http://localhost:{args.port}/settings/llm\n")
+    print(f"  Operations console: http://localhost:{args.port}/admin/operations/dashboard")
+    print(f"  Data connectors: http://localhost:{args.port}/admin/integration/connectors")
+    print(f"  Data mappings: http://localhost:{args.port}/admin/integration/mappings/discover")
+    print(f"  LLM settings: http://localhost:{args.port}/admin/settings/llm\n")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 

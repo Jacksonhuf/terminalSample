@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Body
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Body, Request
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -876,35 +876,35 @@ def create_app(
         manager.save(ontology)
         return {"message": "deleted", "name": action_name}
 
-    # --- Static UI pages ---
+    # --- Static UI pages (unified SPA shell) ---
+
+    SPA = STATIC_DIR / "app.html"
+    LEGACY_REDIRECTS = {
+        "/editor": "/admin/ontologies/edit",
+        "/visualize": "/admin/ontologies/graph",
+        "/operations": "/admin/operations/dashboard",
+        "/connectors": "/admin/integration/connectors",
+        "/mappings": "/admin/integration/mappings/discover",
+        "/settings/llm": "/admin/settings/llm",
+    }
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(SPA)
 
     @app.get("/editor")
-    def editor_page():
-        return FileResponse(STATIC_DIR / "editor.html")
-
     @app.get("/visualize")
-    def visualize_page():
-        return FileResponse(STATIC_DIR / "visualize.html")
-
     @app.get("/operations")
-    def operations_page():
-        return FileResponse(STATIC_DIR / "operations.html")
-
     @app.get("/connectors")
-    def connectors_page():
-        return FileResponse(STATIC_DIR / "connectors.html")
-
     @app.get("/mappings")
-    def mappings_page():
-        return FileResponse(STATIC_DIR / "mappings.html")
-
     @app.get("/settings/llm")
-    def llm_settings_page():
-        return FileResponse(STATIC_DIR / "llm.html")
+    def legacy_pages(request: Request):
+        return RedirectResponse(LEGACY_REDIRECTS[request.url.path], status_code=302)
+
+    @app.get("/admin")
+    @app.get("/admin/{full_path:path}")
+    def admin_spa(full_path: str = ""):
+        return FileResponse(SPA)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

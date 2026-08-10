@@ -1,0 +1,30 @@
+<div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title" id="page-title">本体可视化</h1>
+        <p class="page-subtitle" id="page-subtitle">对象类型、关系与动作图谱</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="ontology-select" onchange="loadGraph(this.value)"
+          style="padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+          <option value="">选择本体...</option>
+        </select>
+        <a id="edit-link" href="#" onclick="return false;" class="btn btn-secondary btn-sm">编辑</a>
+      </div>
+    </div>
+
+    <div class="graph-legend">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#5b8def"></div> 对象类型
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#a78bfa"></div> 动作
+      </div>
+      <div class="legend-item">
+        <span style="color:var(--text-muted)">—→ 关系 &nbsp; ╌╌→ 动作指向</span>
+      </div>
+    </div>
+
+    <div id="graph-container"></div>
+    <div id="graph-stats" style="margin-top:12px;font-size:12px;color:var(--text-muted)"></div>
+  </div>

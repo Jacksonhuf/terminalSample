@@ -1,0 +1,77 @@
+<div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title">运营中心</h1>
+        <p class="page-subtitle" id="status-info">加载配置状态...</p>
+      </div>
+      <button class="btn btn-primary" id="run-outreach-btn" onclick="runOutreach()">▶ 执行到期跟催</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">样机看板</button>
+      <button class="tab" data-tab="audit" onclick="switchTab('audit')">审计日志</button>
+      <button class="tab" data-tab="approvals" onclick="switchTab('approvals')">审批工作台</button>
+      <button class="tab" data-tab="messages" onclick="switchTab('messages')">消息记录</button>
+      <button class="tab" data-tab="outreach" onclick="switchTab('outreach')">跟催任务</button>
+    </div>
+
+    <div id="panel-dashboard" class="tab-panel active">
+      <div class="filter-bar">
+        <button class="btn btn-secondary btn-sm" onclick="loadDashboard()">刷新</button>
+        <button class="btn btn-primary btn-sm" id="seed-btn" onclick="seedPrototype()">写入演示数据</button>
+      </div>
+      <div id="dashboard-content"></div>
+    </div>
+
+    <div id="panel-audit" class="tab-panel">
+      <div class="filter-bar">
+        <input id="audit-action" placeholder="动作名 (如 ReservePrototype)">
+        <input id="audit-user" placeholder="用户 ID">
+        <button class="btn btn-secondary btn-sm" onclick="loadAuditLogs()">查询</button>
+      </div>
+      <div class="table-wrap" id="audit-table"></div>
+    </div>
+
+    <div id="panel-approvals" class="tab-panel">
+      <div class="filter-bar">
+        <select id="approval-status" onchange="onApprovalStatusChange()">
+          <option value="pending">pending</option>
+          <option value="">全部状态</option>
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="loadApprovals()">查询</button>
+        <div class="batch-actions" id="batch-actions" style="display:none">
+          <label><input type="checkbox" id="select-all-approvals" onchange="toggleSelectAll()"> 全选</label>
+          <button class="btn btn-primary btn-sm" onclick="batchResolve(true)">批量批准</button>
+          <button class="btn btn-secondary btn-sm" onclick="batchResolve(false)">批量拒绝</button>
+        </div>
+      </div>
+      <div class="table-wrap" id="approvals-table"></div>
+    </div>
+
+    <div id="panel-messages" class="tab-panel">
+      <div class="filter-bar">
+        <input id="msg-object-type" placeholder="对象类型 (如 Prototype)">
+        <input id="msg-object-id" placeholder="对象 ID">
+        <button class="btn btn-secondary btn-sm" onclick="loadMessageLogs()">查询</button>
+      </div>
+      <div class="table-wrap" id="messages-table"></div>
+    </div>
+
+    <div id="panel-outreach" class="tab-panel">
+      <div class="filter-bar">
+        <select id="task-status">
+          <option value="">全部状态</option>
+          <option value="pending">pending</option>
+          <option value="sent">sent</option>
+          <option value="failed">failed</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+        <input id="task-object-type" placeholder="对象类型">
+        <input id="task-object-id" placeholder="对象 ID">
+        <button class="btn btn-secondary btn-sm" onclick="loadOutreachTasks()">查询</button>
+      </div>
+      <div class="table-wrap" id="outreach-table"></div>
+    </div>
+  </div>

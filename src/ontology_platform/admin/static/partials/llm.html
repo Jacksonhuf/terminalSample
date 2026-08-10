@@ -1,0 +1,78 @@
+<div class="container">
+    <div class="toolbar">
+      <div>
+        <h1 class="page-title">LLM 配置</h1>
+        <p class="page-subtitle" id="status-info">配置模型、Planner 与公司网络代理</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="profiles" onclick="switchTab('profiles')">模型配置</button>
+      <button class="tab" data-tab="proxy" onclick="switchTab('proxy')">网络与代理</button>
+    </div>
+
+    <div id="panel-profiles" class="tab-panel active">
+      <div class="filter-bar">
+        <button class="btn btn-primary btn-sm" onclick="showProfileForm()">+ 新建模型</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadProfiles()">刷新</button>
+      </div>
+      <div class="card" id="profile-form" style="display:none; margin-bottom:16px">
+        <h3 class="section-title" id="profile-form-title">编辑模型</h3>
+        <div class="form-grid">
+          <label>ID（新建可选）<input id="p-id"></label>
+          <label>名称<input id="p-name" placeholder="内网 Qwen"></label>
+          <label>Provider
+            <select id="p-provider">
+              <option value="openai_compatible">openai_compatible</option>
+              <option value="openai">openai</option>
+              <option value="azure">azure</option>
+              <option value="anthropic">anthropic</option>
+            </select>
+          </label>
+          <label>Model<input id="p-model" placeholder="qwen2.5-72b"></label>
+          <label>Base URL<input id="p-base-url" placeholder="http://llm.internal.corp/v1"></label>
+          <label>API Key 凭据
+            <select id="p-api-key-ref"><option value="">（无 / 内网免鉴权）</option></select>
+          </label>
+          <label>Planner 模式
+            <select id="p-planner-mode"><option value="auto">auto</option><option value="llm">llm</option><option value="rule">rule</option></select>
+          </label>
+          <label>代理模式
+            <select id="p-proxy-mode">
+              <option value="inherit">继承全局</option>
+              <option value="bypass">不走代理（内网）</option>
+              <option value="use_proxy">强制走代理</option>
+            </select>
+          </label>
+          <label>Temperature<input id="p-temperature" type="number" step="0.1" value="0.2"></label>
+          <label>Timeout (秒)<input id="p-timeout" type="number" value="60"></label>
+          <label class="full"><input type="checkbox" id="p-default"> 设为默认模型</label>
+          <label class="full"><input type="checkbox" id="p-enabled" checked> 启用</label>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="saveProfile()">保存</button>
+          <button class="btn btn-secondary btn-sm" onclick="hideProfileForm()">取消</button>
+          <button class="btn btn-secondary btn-sm" id="p-test-btn" onclick="testProfile()">测试连接</button>
+        </div>
+        <pre id="test-output" class="code-block" style="display:none; margin-top:12px"></pre>
+      </div>
+      <div class="table-wrap" id="profiles-table"></div>
+    </div>
+
+    <div id="panel-proxy" class="tab-panel">
+      <div class="card">
+        <h3 class="section-title">公司代理设置</h3>
+        <div class="form-grid">
+          <label class="full"><input type="checkbox" id="proxy-enabled"> 启用 HTTP/HTTPS 代理</label>
+          <label>HTTP Proxy<input id="proxy-http" placeholder="http://proxy.corp.com:8080"></label>
+          <label>HTTPS Proxy<input id="proxy-https" placeholder="http://proxy.corp.com:8080"></label>
+          <label class="full">No Proxy 列表（逗号分隔）<input id="proxy-no-proxy" placeholder="localhost,127.0.0.1,.corp.internal"></label>
+          <label class="full"><input type="checkbox" id="proxy-internal-bypass" checked> 内网地址默认不走代理（inherit 模式生效）</label>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary btn-sm" onclick="saveProxy()">保存代理配置</button>
+        </div>
+        <p class="page-subtitle" style="margin-top:12px">内网部署模型请在模型配置中选择「不走代理（内网）」。</p>
+      </div>
+    </div>
+  </div>
