@@ -121,6 +121,13 @@ class TestAdminAPI:
         assert res.status_code == 200
         assert OntologyManager(temp_dir).load("new_ont").name == "new_ont"
 
+    def test_delete_ontology(self, client, temp_dir):
+        res = client.delete("/api/ontologies/test_ont")
+        assert res.status_code == 200
+        assert res.json()["name"] == "test_ont"
+        with pytest.raises(FileNotFoundError):
+            OntologyManager(temp_dir).load("test_ont")
+
     def test_update_ontology(self, client, temp_dir):
         ont = OntologyManager(temp_dir).load("test_ont")
         ont.description = "via API"

@@ -27,8 +27,9 @@ export async function mount(container, params, ctx) {
               <span class="stat"><strong>${o.action_count}</strong> 动作</span>
             </div>
             <div style="margin-top:12px;display:flex;gap:8px">
-              <a href="#" onclick="event.stopPropagation();navigate(`/admin/ontologies/${o.name}/edit`);return false;" class="btn btn-secondary btn-sm" onclick="event.stopPropagation()">编辑</a>
-              <a href="#" onclick="event.stopPropagation();navigate(`/admin/ontologies/${o.name}/graph`);return false;" class="btn btn-secondary btn-sm" onclick="event.stopPropagation()">可视化</a>
+              <a href="#" onclick="event.stopPropagation();navigate('/admin/ontologies/${escAttr(o.name)}/edit');return false;" class="btn btn-secondary btn-sm">编辑</a>
+              <a href="#" onclick="event.stopPropagation();navigate('/admin/ontologies/${escAttr(o.name)}/graph');return false;" class="btn btn-secondary btn-sm">可视化</a>
+              <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteOntology('${escAttr(o.name)}')">删除</button>
             </div>
           </div>
         `).join('');
@@ -67,8 +68,19 @@ export async function mount(container, params, ctx) {
       }
     }
 
+    async function deleteOntology(name) {
+      if (!confirm(`确认删除本体「${name}」？此操作不可恢复。`)) return;
+      try {
+        await api(`/ontologies/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        toast('本体已删除');
+        loadOntologies();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
     loadOntologies();
 
-  Object.assign(window, { createOntology, showCreateModal, hideCreateModal, loadOntologies, openOntology });
-  return () => { delete window.createOntology; delete window.hideCreateModal; delete window.loadOntologies; delete window.openOntology; delete window.showCreateModal; };
+  Object.assign(window, { createOntology, deleteOntology, showCreateModal, hideCreateModal, loadOntologies, openOntology });
+  return () => { delete window.createOntology; delete window.deleteOntology; delete window.hideCreateModal; delete window.loadOntologies; delete window.openOntology; delete window.showCreateModal; };
 }

@@ -54,6 +54,19 @@ export async function mount(container, params, ctx) {
       renderActions();
     }
 
+    function propsToText(props) {
+      return (props || []).map(p => `${p.name}:${p.type}`).join('\n');
+    }
+
+    function parseProps(text) {
+      return (text || '').split('\n').filter(Boolean).map(line => {
+        const [n, t = 'string'] = line.split(':').map(s => s.trim());
+        const p = { name: n, type: t, required: true };
+        if (t === 'enum') p.enum_values = [];
+        return p;
+      });
+    }
+
     function renderObjectTypes() {
       const tbody = document.getElementById('object-types-table');
       tbody.innerHTML = (ontology.object_types || []).map((ot, i) => `
@@ -62,7 +75,10 @@ export async function mount(container, params, ctx) {
           <td>${escHtml(ot.display_name || '')}</td>
           <td>${(ot.properties || []).map(p => `<span class="badge badge-green">${escHtml(p.name)}:${p.type}</span>`).join(' ')}</td>
           <td>${escHtml(ot.primary_key || 'id')}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="deleteObjectType(${i})">删除</button></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-secondary btn-sm" onclick="showEditObjectType(${i})">编辑</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteObjectType(${i})">删除</button>
+          </td>
         </tr>
       `).join('') || '<tr><td colspan="5" style="color:var(--text-muted)">暂无对象类型</td></tr>';
     }
@@ -76,7 +92,10 @@ export async function mount(container, params, ctx) {
           <td>→ <span class="badge badge-blue">${escHtml(l.target_type)}</span></td>
           <td>${escHtml(l.cardinality || 'many')}</td>
           <td>${escHtml(l.description || '')}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="deleteLink(${i})">删除</button></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-secondary btn-sm" onclick="showEditLink(${i})">编辑</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteLink(${i})">删除</button>
+          </td>
         </tr>
       `).join('') || '<tr><td colspan="6" style="color:var(--text-muted)">暂无关系</td></tr>';
     }
@@ -90,7 +109,10 @@ export async function mount(container, params, ctx) {
           <td><span class="badge badge-blue">${escHtml(a.target_type)}</span></td>
           <td>${a.requires_approval ? '<span class="badge badge-orange">需审批</span>' : '-'}</td>
           <td>${(a.parameters || []).map(p => escHtml(p.name)).join(', ') || '-'}</td>
-          <td><button class="btn btn-danger btn-sm" onclick="deleteAction(${i})">删除</button></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-secondary btn-sm" onclick="showEditAction(${i})">编辑</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteAction(${i})">删除</button>
+          </td>
         </tr>
       `).join('') || '<tr><td colspan="6" style="color:var(--text-muted)">暂无动作</td></tr>';
     }
@@ -155,22 +177,45 @@ export async function mount(container, params, ctx) {
     function addObjectType() {
       const name = document.getElementById('f-name').value.trim();
       if (!name) return toast('请输入名称', 'error');
-      const props = (document.getElementById('f-props').value || '').split('\n').filter(Boolean).map(line => {
-        const [n, t = 'string'] = line.split(':').map(s => s.trim());
-        const p = { name: n, type: t, required: true };
-        if (t === 'enum') p.enum_values = [];
-        return p;
-      });
       ontology.object_types.push({
         name,
         display_name: document.getElementById('f-display').value,
         description: document.getElementById('f-desc').value,
         primary_key: document.getElementById('f-pk').value || 'id',
-        properties: props,
+        properties: parseProps(document.getElementById('f-props').value),
       });
       hideModal();
       renderObjectTypes();
       toast('已添加，记得保存');
+    }
+
+    function showEditObjectType(i) {
+      const ot = ontology.object_types[i];
+      showModal(`
+        <h2>编辑对象类型</h2>
+        <div class="form-group"><label>名称</label><input id="f-name" value="${escAttr(ot.name)}" readonly></div>
+        <div class="form-group"><label>显示名</label><input id="f-display" value="${escAttr(ot.display_name || '')}"></div>
+        <div class="form-group"><label>描述</label><input id="f-desc" value="${escAttr(ot.description || '')}"></div>
+        <div class="form-group"><label>主键</label><input id="f-pk" value="${escAttr(ot.primary_key || 'id')}"></div>
+        <div class="form-group"><label>属性 (每行一个: 名称:类型, 如 id:string)</label>
+          <textarea id="f-props" rows="4">${escHtml(propsToText(ot.properties))}</textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+          <button class="btn btn-primary" onclick="updateObjectType(${i})">保存</button>
+        </div>
+      `);
+    }
+
+    function updateObjectType(i) {
+      const ot = ontology.object_types[i];
+      ot.display_name = document.getElementById('f-display').value;
+      ot.description = document.getElementById('f-desc').value;
+      ot.primary_key = document.getElementById('f-pk').value || 'id';
+      ot.properties = parseProps(document.getElementById('f-props').value);
+      hideModal();
+      renderObjectTypes();
+      toast('已更新，记得保存');
     }
 
     function deleteObjectType(i) {
@@ -202,12 +247,48 @@ export async function mount(container, params, ctx) {
         name: document.getElementById('f-name').value.trim(),
         source_type: document.getElementById('f-source').value,
         target_type: document.getElementById('f-target').value,
-        cardinality: 'many',
+        cardinality: document.getElementById('f-cardinality')?.value || 'many',
         description: document.getElementById('f-desc').value,
       });
       hideModal();
       renderLinks();
       toast('已添加，记得保存');
+    }
+
+    function showEditLink(i) {
+      const l = ontology.links[i];
+      const types = (ontology.object_types || []).map(t => t.name);
+      const opts = (sel) => types.map(t => `<option value="${t}"${t === sel ? ' selected' : ''}>${t}</option>`).join('');
+      showModal(`
+        <h2>编辑关系</h2>
+        <div class="form-group"><label>名称</label><input id="f-name" value="${escAttr(l.name)}" readonly></div>
+        <div class="form-row">
+          <div class="form-group"><label>源类型</label><select id="f-source">${opts(l.source_type)}</select></div>
+          <div class="form-group"><label>目标类型</label><select id="f-target">${opts(l.target_type)}</select></div>
+        </div>
+        <div class="form-group"><label>基数</label>
+          <select id="f-cardinality">
+            <option value="one"${l.cardinality === 'one' ? ' selected' : ''}>one</option>
+            <option value="many"${l.cardinality !== 'one' ? ' selected' : ''}>many</option>
+          </select>
+        </div>
+        <div class="form-group"><label>描述</label><input id="f-desc" value="${escAttr(l.description || '')}"></div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+          <button class="btn btn-primary" onclick="updateLink(${i})">保存</button>
+        </div>
+      `);
+    }
+
+    function updateLink(i) {
+      const l = ontology.links[i];
+      l.source_type = document.getElementById('f-source').value;
+      l.target_type = document.getElementById('f-target').value;
+      l.cardinality = document.getElementById('f-cardinality').value;
+      l.description = document.getElementById('f-desc').value;
+      hideModal();
+      renderLinks();
+      toast('已更新，记得保存');
     }
 
     function deleteLink(i) {
@@ -236,22 +317,58 @@ export async function mount(container, params, ctx) {
       `);
     }
 
-    function addAction() {
-      const params = (document.getElementById('f-params').value || '').split('\n').filter(Boolean).map(line => {
+    function parseActionParams(text) {
+      return (text || '').split('\n').filter(Boolean).map(line => {
         const [n, t = 'string'] = line.split(':').map(s => s.trim());
         return { name: n, type: t, required: true };
       });
+    }
+
+    function addAction() {
       ontology.actions.push({
         name: document.getElementById('f-name').value.trim(),
         display_name: document.getElementById('f-display').value,
         target_type: document.getElementById('f-target').value,
         requires_approval: document.getElementById('f-approval').checked,
         keywords: document.getElementById('f-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
-        parameters: params,
+        parameters: parseActionParams(document.getElementById('f-params').value),
       });
       hideModal();
       renderActions();
       toast('已添加，记得保存');
+    }
+
+    function showEditAction(i) {
+      const a = ontology.actions[i];
+      const types = (ontology.object_types || []).map(t => t.name);
+      const opts = types.map(t => `<option value="${t}"${t === a.target_type ? ' selected' : ''}>${t}</option>`).join('');
+      showModal(`
+        <h2>编辑动作</h2>
+        <div class="form-group"><label>名称</label><input id="f-name" value="${escAttr(a.name)}" readonly></div>
+        <div class="form-group"><label>显示名</label><input id="f-display" value="${escAttr(a.display_name || '')}"></div>
+        <div class="form-group"><label>目标类型</label><select id="f-target">${opts}</select></div>
+        <div class="form-group"><label>关键词 (逗号分隔)</label><input id="f-keywords" value="${escAttr((a.keywords || []).join(','))}"></div>
+        <div class="form-group"><label><input type="checkbox" id="f-approval"${a.requires_approval ? ' checked' : ''}> 需要审批</label></div>
+        <div class="form-group"><label>参数 (每行: 名称:类型)</label>
+          <textarea id="f-params" rows="3">${escHtml((a.parameters || []).map(p => `${p.name}:${p.type}`).join('\n'))}</textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+          <button class="btn btn-primary" onclick="updateAction(${i})">保存</button>
+        </div>
+      `);
+    }
+
+    function updateAction(i) {
+      const a = ontology.actions[i];
+      a.display_name = document.getElementById('f-display').value;
+      a.target_type = document.getElementById('f-target').value;
+      a.requires_approval = document.getElementById('f-approval').checked;
+      a.keywords = document.getElementById('f-keywords').value.split(',').map(s => s.trim()).filter(Boolean);
+      a.parameters = parseActionParams(document.getElementById('f-params').value);
+      hideModal();
+      renderActions();
+      toast('已更新，记得保存');
     }
 
     function deleteAction(i) {
@@ -266,6 +383,24 @@ export async function mount(container, params, ctx) {
 
     loadOntologyList();
 
-  Object.assign(window, { deleteAction, renderAll, deleteLink, renderActions, addAction, deleteObjectType, applyJson, switchOntology, showAddLink, viewGraph, addObjectType, hideModal, loadOntology, showAddAction, saveOntology, syncFromOverview, renderLinks, showAddObjectType, showModal, addLink, renderObjectTypes, loadOntologyList });
-  return () => { delete window.addAction; delete window.addLink; delete window.addObjectType; delete window.applyJson; delete window.deleteAction; delete window.deleteLink; delete window.deleteObjectType; delete window.hideModal; delete window.loadOntology; delete window.loadOntologyList; delete window.renderActions; delete window.renderAll; delete window.renderLinks; delete window.renderObjectTypes; delete window.saveOntology; delete window.showAddAction; delete window.showAddLink; delete window.showAddObjectType; delete window.showModal; delete window.switchOntology; delete window.syncFromOverview; delete window.viewGraph; };
+  Object.assign(window, {
+    deleteAction, renderAll, deleteLink, renderActions, addAction, deleteObjectType,
+    applyJson, switchOntology, showAddLink, viewGraph, addObjectType, hideModal,
+    loadOntology, showAddAction, saveOntology, syncFromOverview, renderLinks,
+    showAddObjectType, showModal, addLink, renderObjectTypes, loadOntologyList,
+    showEditObjectType, updateObjectType, showEditLink, updateLink,
+    showEditAction, updateAction,
+  });
+  return () => {
+    delete window.addAction; delete window.addLink; delete window.addObjectType;
+    delete window.applyJson; delete window.deleteAction; delete window.deleteLink;
+    delete window.deleteObjectType; delete window.hideModal; delete window.loadOntology;
+    delete window.loadOntologyList; delete window.renderActions; delete window.renderAll;
+    delete window.renderLinks; delete window.renderObjectTypes; delete window.saveOntology;
+    delete window.showAddAction; delete window.showAddLink; delete window.showAddObjectType;
+    delete window.showEditAction; delete window.showEditLink; delete window.showEditObjectType;
+    delete window.showModal; delete window.switchOntology; delete window.syncFromOverview;
+    delete window.updateAction; delete window.updateLink; delete window.updateObjectType;
+    delete window.viewGraph;
+  };
 }
