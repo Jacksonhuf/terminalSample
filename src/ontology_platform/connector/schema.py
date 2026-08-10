@@ -40,6 +40,14 @@ class LoginConfig(BaseModel):
     post_login_wait: str = ""
 
 
+class CaptureSchedule(BaseModel):
+    """Optional periodic capture schedule for a connector."""
+
+    enabled: bool = False
+    interval_sec: int = 3600
+    auto_sync: bool = True
+
+
 class ConnectorDef(BaseModel):
     """Definition of a data connector (Palantir Pipeline / Data Connection inspired)."""
 
@@ -53,6 +61,7 @@ class ConnectorDef(BaseModel):
     capture_instructions: str = ""
     record_mappings: list[RecordMapping] = Field(default_factory=list)
     computer_use_hints: list[str] = Field(default_factory=list)
+    schedule: CaptureSchedule | None = None
 
 
 class CaptureRecord(BaseModel):

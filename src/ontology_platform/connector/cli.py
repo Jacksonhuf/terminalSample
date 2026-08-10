@@ -86,6 +86,16 @@ def main(argv: list[str] | None = None) -> int:
 
     p_list = sub.add_parser("list", help="List available connectors")
 
+    p_run = sub.add_parser("run", help="Execute LLM Computer Use capture (ingest + optional sync)")
+    p_run.add_argument("connector", help="Connector name")
+    p_run.add_argument("--mock", action="store_true", help="Use sample capture JSON (demo)")
+    p_run.add_argument("--no-sync", action="store_true", help="Skip sync to ontology")
+    p_run.add_argument("--llm-profile", help="LLM profile id (default profile if omitted)")
+
+    p_daemon = sub.add_parser("daemon", help="Poll scheduled connector captures")
+    p_daemon.add_argument("--interval", type=int, default=60, help="Poll interval in seconds")
+    p_daemon.add_argument("--mock", action="store_true", help="Use mock capture for all runs")
+
     args = parser.parse_args(argv)
     connectors_dir = Path(args.connectors_dir)
     db_path = Path(args.db)
@@ -165,7 +175,53 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
+    if args.command == "run":
+        mgr = _build_manager(
+            connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
+        )
+        chat_model = _load_llm_model(credential_db, getattr(args, "llm_profile", None))
+        result = mgr.run_capture(
+            args.connector,
+            chat_model=chat_model,
+            mock=args.mock,
+            auto_sync=not args.no_sync,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "daemon":
+        from ontology_platform.connector.worker import run_capture_daemon
+
+        mgr = _build_manager(
+            connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
+        )
+        chat_model = _load_llm_model(credential_db, None)
+        run_capture_daemon(
+            mgr,
+            chat_model=chat_model,
+            mock=args.mock,
+            interval=args.interval,
+        )
+        return 0
+
     return 1
+
+
+def _load_llm_model(credential_db: Path, profile_id: str | None):
+    """Load default LLM chat model when store path is available."""
+    try:
+        from ontology_platform.connector.credential_store import CredentialStore
+        from ontology_platform.llm.factory import build_chat_model_from_store
+        from ontology_platform.llm.store import LlmConfigStore
+
+        store_path = credential_db
+        if not store_path.exists():
+            return None
+        llm_store = LlmConfigStore(store_path)
+        cred_store = CredentialStore(store_path)
+        return build_chat_model_from_store(llm_store, cred_store, profile_id=profile_id)
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":

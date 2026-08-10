@@ -64,6 +64,7 @@ export async function mount(container, params, ctx) {
                 <td>${escHtml(c.source_url || c.source_file || '')}</td>
                 <td>${escHtml(c.credential_ref || '-')}</td>
                 <td>
+                  <button class="btn btn-primary btn-sm" onclick="runCaptureByName('${escAttr(c.name)}', true)">采集</button>
                   <button class="btn btn-secondary btn-sm" onclick='editConnector(${JSON.stringify(c).replace(/'/g, "&#39;")})'>编辑</button>
                   <button class="btn btn-secondary btn-sm" onclick="deleteConnector('${escHtml(c.name)}')">删除</button>
                 </td>
@@ -85,6 +86,9 @@ export async function mount(container, params, ctx) {
       document.getElementById('c-login-url').value = '';
       document.getElementById('c-description').value = '';
       document.getElementById('c-instructions').value = '';
+      document.getElementById('c-schedule-enabled').checked = false;
+      document.getElementById('c-schedule-interval').value = '3600';
+      document.getElementById('c-schedule-auto-sync').checked = true;
       document.getElementById('task-output').style.display = 'none';
       document.getElementById('connector-form').style.display = 'block';
       document.getElementById('c-name').disabled = false;
@@ -105,6 +109,10 @@ export async function mount(container, params, ctx) {
       document.getElementById('c-login-url').value = (c.login && c.login.login_url) || '';
       document.getElementById('c-description').value = c.description || '';
       document.getElementById('c-instructions').value = c.capture_instructions || '';
+      const sched = c.schedule || {};
+      document.getElementById('c-schedule-enabled').checked = !!sched.enabled;
+      document.getElementById('c-schedule-interval').value = sched.interval_sec || 3600;
+      document.getElementById('c-schedule-auto-sync').checked = sched.auto_sync !== false;
       document.getElementById('task-output').style.display = 'none';
       document.getElementById('connector-form').style.display = 'block';
     }
@@ -123,6 +131,11 @@ export async function mount(container, params, ctx) {
           login_url: document.getElementById('c-login-url').value.trim(),
         },
         capture_instructions: document.getElementById('c-instructions').value,
+        schedule: {
+          enabled: document.getElementById('c-schedule-enabled').checked,
+          interval_sec: parseInt(document.getElementById('c-schedule-interval').value, 10) || 3600,
+          auto_sync: document.getElementById('c-schedule-auto-sync').checked,
+        },
         record_mappings: editingConnector ? undefined : [],
       };
       try {
@@ -161,6 +174,33 @@ export async function mount(container, params, ctx) {
         out.style.display = 'block';
         out.textContent = JSON.stringify(task, null, 2);
         toast('采集任务已生成（密码通过 CU_PASSWORD 环境变量注入，不出现在 JSON 中）');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function runCapture(mock) {
+      const name = document.getElementById('c-name').value.trim();
+      if (!name) { toast('请先保存连接器', 'error'); return; }
+      await runCaptureByName(name, mock);
+    }
+
+    async function runCaptureByName(name, mock) {
+      const label = mock ? '演示采集 (Mock)' : 'LLM 采集';
+      if (!mock && !confirm(`确认对「${name}」执行${label}？需要已配置 LLM 与 playwright。`)) return;
+      try {
+        toast(`${label}进行中...`);
+        const result = await api(`/connectors/${name}/run`, {
+          method: 'POST',
+          body: JSON.stringify({ mock, auto_sync: true }),
+        });
+        const out = document.getElementById('task-output');
+        if (out) {
+          out.style.display = 'block';
+          out.textContent = JSON.stringify(result, null, 2);
+        }
+        toast(`采集完成：${result.records_captured || 0} 条，同步 ${result.records_synced || 0} 条`);
+        loadConnectors();
       } catch (e) {
         toast(e.message, 'error');
       }
@@ -307,6 +347,6 @@ export async function mount(container, params, ctx) {
     loadStatus();
     switchTab(params.tab || 'connectors');
 
-  Object.assign(window, { rotatePassword, editConnector, deleteCredential, editCredential, switchTab, loadCredentialOptions, loadConnectors, saveConnector, hideConnectorForm, loadStatus, deleteConnector, loadCredentials, showConnectorForm, saveCredential, hideCredentialForm, showCredentialForm, generateTask });
-  return () => { delete window.deleteConnector; delete window.deleteCredential; delete window.editConnector; delete window.editCredential; delete window.generateTask; delete window.hideConnectorForm; delete window.hideCredentialForm; delete window.loadConnectors; delete window.loadCredentialOptions; delete window.loadCredentials; delete window.loadStatus; delete window.rotatePassword; delete window.saveConnector; delete window.saveCredential; delete window.showConnectorForm; delete window.showCredentialForm; delete window.switchTab; };
+  Object.assign(window, { rotatePassword, editConnector, deleteCredential, editCredential, switchTab, loadCredentialOptions, loadConnectors, saveConnector, hideConnectorForm, loadStatus, deleteConnector, loadCredentials, showConnectorForm, saveCredential, hideCredentialForm, showCredentialForm, generateTask, runCapture, runCaptureByName });
+  return () => { delete window.deleteConnector; delete window.deleteCredential; delete window.editConnector; delete window.editCredential; delete window.generateTask; delete window.hideConnectorForm; delete window.hideCredentialForm; delete window.loadConnectors; delete window.loadCredentialOptions; delete window.loadCredentials; delete window.loadStatus; delete window.rotatePassword; delete window.runCapture; delete window.runCaptureByName; delete window.saveConnector; delete window.saveCredential; delete window.showConnectorForm; delete window.showCredentialForm; delete window.switchTab; };
 }

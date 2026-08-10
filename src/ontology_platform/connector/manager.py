@@ -283,10 +283,11 @@ class ConnectorManager:
         )
         return {"run_id": run_id, "created": created, "updated": updated, "total": len(raw)}
 
-    def get_computer_use_task(self, connector_name: str) -> dict[str, Any]:
+    def get_computer_use_task(self, connector_name: str, *, run_id: str | None = None) -> dict[str, Any]:
         """Build instructions for a Computer Use agent to execute capture."""
         connector = self.load_connector(connector_name)
-        run_id = self.start_run(connector_name)
+        if run_id is None:
+            run_id = self.start_run(connector_name)
         login = build_login_task_payload(connector, self.credential_store)
         return {
             "run_id": run_id,
@@ -310,6 +311,66 @@ class ConnectorManager:
                 ],
             },
         }
+
+    def run_capture(
+        self,
+        connector_name: str,
+        *,
+        chat_model: Any | None = None,
+        mock: bool = False,
+        auto_sync: bool | None = None,
+    ) -> dict[str, Any]:
+        """Execute LLM Computer Use capture → ingest → optional sync."""
+        from ontology_platform.connector.capture.runner import CaptureRunner, CaptureRunError
+        from ontology_platform.connector.credential_resolver import inject_credentials_env
+        from ontology_platform.connector.schema import CaptureMode
+
+        connector = self.load_connector(connector_name)
+        if auto_sync is None:
+            auto_sync = connector.schedule.auto_sync if connector.schedule else True
+
+        if connector.mode == CaptureMode.FILE:
+            file_result = self.ingest_file(connector_name)
+            sync_result = None
+            if auto_sync and self.ontology_service is not None:
+                sync_result = self.sync_to_ontology(connector_name, run_id=file_result.get("run_id"))
+            return {
+                "mode": "file",
+                "ingest": file_result,
+                "sync": sync_result,
+            }
+
+        run_id = self.start_run(connector_name)
+        try:
+            task = self.get_computer_use_task(connector_name, run_id=run_id)
+            credentials = inject_credentials_env(connector, self.credential_store, env={})
+            runner = CaptureRunner(chat_model=chat_model, mock=mock)
+            batch = runner.execute(task, credentials)
+            ingest = self.ingest_batch(batch)
+            sync_result = None
+            if auto_sync:
+                if self.ontology_service is None:
+                    raise CaptureRunError("未配置 OntologyService，无法 auto_sync")
+                sync_result = self.sync_to_ontology(connector_name, run_id=run_id)
+            synced = (sync_result or {}).get("synced", 0)
+            self.store.complete_run(
+                run_id,
+                status="completed",
+                records_captured=ingest.get("records_staged", 0),
+                records_synced=synced,
+            )
+            return {
+                "run_id": run_id,
+                "mode": "computer_use",
+                "mock": bool(batch.metadata.get("mock")),
+                "ingest": ingest,
+                "sync": sync_result,
+                "records_captured": ingest.get("records_staged", 0),
+                "records_synced": synced,
+            }
+        except Exception as exc:
+            self.store.complete_run(run_id, status="failed", error=str(exc))
+            raise
 
     def _apply_mapping(self, payload: dict, mapping: RecordMapping) -> dict[str, Any]:
         if not mapping.field_mappings:

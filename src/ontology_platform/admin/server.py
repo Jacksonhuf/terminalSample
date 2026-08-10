@@ -19,6 +19,7 @@ from ontology_platform.admin.llm_api import SaveLlmProfileRequest, SaveProxyConf
 from ontology_platform.admin.connectors_api import (
     CreateCredentialRequest,
     RotatePasswordRequest,
+    RunCaptureRequest,
     SaveConnectorRequest,
     UpdateCredentialRequest,
     build_connector_manager,
@@ -94,7 +95,7 @@ def create_app(
     from ontology_platform.governance.audit import AuditLogEntry
 
     from ontology_platform.llm.store import LlmConfigStore
-    from ontology_platform.llm.factory import test_llm_connection
+    from ontology_platform.llm.factory import build_chat_model_from_store, test_llm_connection
 
     resolved_store_path = store_path or audit_path
     audit_logger = AuditLogger(resolved_store_path) if resolved_store_path else None
@@ -118,6 +119,18 @@ def create_app(
         credential_store,
         mapping_store=mapping_store,
     )
+    if resolved_store_path and yaml_path.exists():
+        try:
+            import yaml as _yaml
+            from ontology_platform.admin.mapping_api import resolve_ontology_service
+
+            with open(yaml_path, encoding="utf-8") as _f:
+                _ont_name = (_yaml.safe_load(_f) or {}).get("name", "prototype")
+            connector_mgr.ontology_service = resolve_ontology_service(
+                manager, _ont_name, resolved_store_path, database_url
+            )
+        except Exception:
+            pass
     connector_store = connector_mgr.store
     mapping_service = build_mapping_service(mapping_store, connector_store)
     runtime_platform = {"instance": None}
@@ -626,6 +639,49 @@ def create_app(
                 )
             )
         return task
+
+    @app.post("/api/connectors/{name}/run")
+    def run_connector_capture_api(name: str, body: RunCaptureRequest = Body(default=RunCaptureRequest())):
+        try:
+            connector_mgr.load_connector(name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Connector not found: {name}")
+
+        chat_model = None
+        if llm_store is not None and not body.mock:
+            chat_model = build_chat_model_from_store(llm_store, credential_store)
+
+        try:
+            result = connector_mgr.run_capture(
+                name,
+                chat_model=chat_model,
+                mock=body.mock,
+                auto_sync=body.auto_sync,
+            )
+        except Exception as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="ConnectorCaptureRun",
+                    target_id=name,
+                    status="success",
+                    success=True,
+                    message=f"采集完成 run_id={result.get('run_id')} records={result.get('records_captured', 0)}",
+                )
+            )
+        return result
+
+    @app.get("/api/connectors/{name}/runs")
+    def list_connector_runs(name: str, limit: int = 20):
+        try:
+            connector_mgr.load_connector(name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Connector not found: {name}")
+        runs = connector_mgr.store.list_runs(name, limit=limit)
+        return {"runs": [r.model_dump() for r in runs], "count": len(runs)}
 
     @app.get("/api/llm/profiles")
     def list_llm_profiles():

@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ontology_platform.connector.manager import ConnectorManager
-from ontology_platform.connector.schema import ConnectorDef, LoginConfig
+from ontology_platform.connector.schema import CaptureSchedule, ConnectorDef, LoginConfig
 from ontology_platform.connector.credential_store import CredentialStore
 from ontology_platform.connector.store import ConnectorStore
 from ontology_platform.mapping.store import MappingStore
@@ -45,6 +45,12 @@ class SaveConnectorRequest(BaseModel):
     capture_instructions: str = ""
     computer_use_hints: list[str] = Field(default_factory=list)
     record_mappings: list[dict[str, Any]] = Field(default_factory=list)
+    schedule: CaptureSchedule | None = None
+
+
+class RunCaptureRequest(BaseModel):
+    mock: bool = False
+    auto_sync: bool = True
 
 
 def connector_to_public(connector: ConnectorDef) -> dict[str, Any]:
@@ -93,6 +99,7 @@ def save_connector_from_request(
         capture_instructions=body.capture_instructions,
         computer_use_hints=body.computer_use_hints,
         record_mappings=mappings,
+        schedule=body.schedule,
     )
     manager.save_connector(connector)
     return connector

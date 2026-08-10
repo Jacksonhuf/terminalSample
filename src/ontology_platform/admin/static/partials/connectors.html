@@ -30,11 +30,16 @@
           <label>登录页 URL<input id="c-login-url" placeholder="https://erp.example.com/login"></label>
           <label class="full">描述<input id="c-description"></label>
           <label class="full">采集说明<textarea id="c-instructions" rows="5"></textarea></label>
+          <label class="full"><input type="checkbox" id="c-schedule-enabled"> 启用定时采集</label>
+          <label>定时间隔（秒）<input id="c-schedule-interval" type="number" value="3600" min="60"></label>
+          <label><input type="checkbox" id="c-schedule-auto-sync" checked> 采集后自动同步到 Ontology</label>
         </div>
-        <div style="margin-top:12px; display:flex; gap:8px">
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="saveConnector()">保存</button>
           <button class="btn btn-secondary btn-sm" onclick="hideConnectorForm()">取消</button>
           <button class="btn btn-secondary btn-sm" id="c-task-btn" onclick="generateTask()">生成采集任务</button>
+          <button class="btn btn-primary btn-sm" id="c-run-btn" onclick="runCapture(false)">立即采集</button>
+          <button class="btn btn-secondary btn-sm" onclick="runCapture(true)">演示采集 (Mock)</button>
         </div>
         <pre id="task-output" class="code-block" style="display:none; margin-top:12px"></pre>
       </div>

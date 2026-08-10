@@ -41,6 +41,9 @@ postgres = [
 checkpoint = [
     "langgraph-checkpoint-sqlite>=2.0.0",
 ]
+capture = [
+    "playwright>=1.40.0",
+]
 
 [project.scripts]
 ontology-platform = "ontology_platform.cli:main"
