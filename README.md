@@ -166,6 +166,7 @@ ontology-admin --port 8080
 | 审计日志 | http://localhost:8080/api/audit-logs | 需 `--store-path` 配置数据库 |
 | 运营中心 | http://localhost:8080/operations | 审计 / 审批 / 样机看板 / 消息 / 跟催 |
 | 数据连接 | http://localhost:8080/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
+| 数据映射 | http://localhost:8080/mappings | 浏览暂存数据、配置字段映射、同步到 Ontology |
 | LLM 配置 | http://localhost:8080/settings/llm | 模型、代理、内网 bypass 开关 |
 
 启动时指定数据路径以启用运营功能（与 Chainlit 共用同一路径）：
@@ -308,6 +309,21 @@ ontology-connector list
 ```
 
 Connector 定义见 `examples/connectors/`，采集样例见 `examples/captures/`。完整说明见 [ARCHITECTURE.md](ARCHITECTURE.md#5-数据层data-connectorcomputer-use--sql--ontology)。
+
+### 数据映射工作台（Staging → Ontology）
+
+集成数据进入暂存区后，通过 Admin **数据映射** 页面配置与 Ontology 的关联（无需在集成时预知本体结构）：
+
+1. **数据源浏览** — 查看各 Connector / `record_type` 的暂存条数与样本字段
+2. **映射配置** — 配置源字段 → Ontology 属性，支持试跑预览
+3. **同步任务** — 发布 `active` 映射后执行同步，写入 Ontology 实例库
+
+```bash
+ontology-admin --store-path ./data/demo.db --connector-db ./data/connector.db --port 8080
+# http://localhost:8080/mappings
+```
+
+映射配置存储在 `mapping.db`（默认与 connector 库同目录）。同一 `(connector, record_type)` 仅允许一个 `active` 映射；未配置 active 映射时，回退使用 Connector YAML 中的 `record_mappings`。
 
 ## 项目结构
 

@@ -11,6 +11,7 @@ from ontology_platform.connector.manager import ConnectorManager
 from ontology_platform.connector.schema import ConnectorDef, LoginConfig
 from ontology_platform.connector.credential_store import CredentialStore
 from ontology_platform.connector.store import ConnectorStore
+from ontology_platform.mapping.store import MappingStore
 
 
 class CreateCredentialRequest(BaseModel):
@@ -56,9 +57,10 @@ def build_connector_manager(
     connectors_dir: Path,
     connector_db_path: Path | None,
     credential_store: CredentialStore | None,
+    mapping_store: MappingStore | None = None,
 ) -> ConnectorManager:
     store = ConnectorStore(connector_db_path or connectors_dir.parent / "connector.db")
-    return ConnectorManager(connectors_dir, store, credential_store=credential_store)
+    return ConnectorManager(connectors_dir, store, credential_store=credential_store, mapping_store=mapping_store)
 
 
 def save_connector_from_request(

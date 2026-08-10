@@ -20,6 +20,16 @@ from ontology_platform.admin.connectors_api import (
     connector_to_public,
     save_connector_from_request,
 )
+from ontology_platform.admin.mapping_api import (
+    SaveMappingProfileRequest,
+    SyncMappingRequest,
+    build_mapping_service,
+    build_mapping_store,
+    get_ontology_object_types,
+    profile_to_dict,
+    resolve_ontology_service,
+)
+from ontology_platform.mapping.schema import FieldRule
 from ontology_platform.ontology.schema import (
     ActionDef,
     LinkDef,
@@ -60,6 +70,7 @@ def create_app(
     connectors_dir: str | Path | None = None,
     credential_db_path: str | Path | None = None,
     connector_db_path: str | Path | None = None,
+    mapping_db_path: str | Path | None = None,
 ) -> FastAPI:
     base_dir = Path(ontology_dir) if ontology_dir else Path(__file__).parent.parent.parent.parent / "examples"
     manager = OntologyManager(base_dir)
@@ -92,11 +103,18 @@ def create_app(
     cred_db = credential_db_path or resolved_store_path
     credential_store = CredentialStore(cred_db) if cred_db else None
     llm_store = LlmConfigStore(cred_db) if cred_db else None
+    mapping_db = Path(mapping_db_path) if mapping_db_path else (
+        Path(connector_db_path) if connector_db_path else connectors_path.parent / "mapping.db"
+    )
+    mapping_store = build_mapping_store(mapping_db, connectors_path)
     connector_mgr = build_connector_manager(
         connectors_path,
         Path(connector_db_path) if connector_db_path else None,
         credential_store,
+        mapping_store=mapping_store,
     )
+    connector_store = connector_mgr.store
+    mapping_service = build_mapping_service(mapping_store, connector_store)
     runtime_platform = {"instance": None}
 
     def _get_runtime_platform():
@@ -232,6 +250,7 @@ def create_app(
             "database_url": database_url or "",
             "ontology_yaml": str(yaml_path),
             "ontology_db": str(obj_db_path or ""),
+            "mapping_db": str(mapping_db),
         }
 
     @app.get("/api/prototype/dashboard")
@@ -424,6 +443,165 @@ def create_app(
         if not connector_mgr.delete_connector(name):
             raise HTTPException(404, f"Connector not found: {name}")
         return {"message": "deleted", "name": name}
+
+    # --- Data mapping API ---
+
+    @app.get("/api/mappings/staging")
+    def list_staging_summary(connector: str | None = None):
+        summaries = mapping_service.list_staging_summary(connector)
+        return {"summaries": [s.model_dump() for s in summaries], "count": len(summaries)}
+
+    @app.get("/api/mappings/staging/{connector}/{record_type}/samples")
+    def get_staging_samples(connector: str, record_type: str, limit: int = 5):
+        payloads = mapping_service.get_sample_payloads(connector, record_type, limit=limit)
+        fields = connector_store.infer_fields(connector, record_type)
+        return {"connector": connector, "record_type": record_type, "fields": fields, "samples": payloads}
+
+    @app.get("/api/mappings/ontologies/{ontology_name}/object-types")
+    def list_mapping_object_types(ontology_name: str):
+        try:
+            types = get_ontology_object_types(manager, ontology_name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Ontology not found: {ontology_name}")
+        return {"ontology": ontology_name, "object_types": types}
+
+    @app.get("/api/mappings/profiles")
+    def list_mapping_profiles(
+        connector: str | None = None,
+        record_type: str | None = None,
+        status: str | None = None,
+    ):
+        profiles = mapping_store.list_profiles(connector, record_type, status)
+        return {"profiles": [profile_to_dict(p) for p in profiles], "count": len(profiles)}
+
+    @app.get("/api/mappings/profiles/{profile_id}")
+    def get_mapping_profile(profile_id: str):
+        profile = mapping_store.get_profile(profile_id)
+        if profile is None:
+            raise HTTPException(404, f"Mapping profile not found: {profile_id}")
+        return profile_to_dict(profile)
+
+    @app.post("/api/mappings/profiles")
+    def create_mapping_profile(req: SaveMappingProfileRequest = Body()):
+        existing_active = mapping_store.get_active_profile(req.connector_name, req.record_type)
+        if req.status == "active" and existing_active is not None:
+            raise HTTPException(
+                409,
+                f"Active mapping already exists: {existing_active.name} ({existing_active.id})",
+            )
+        field_rules = [
+            FieldRule(source=r.source, target=r.target, transform=r.transform)
+            for r in req.field_rules
+        ]
+        profile = mapping_store.create_profile(
+            name=req.name,
+            connector_name=req.connector_name,
+            record_type=req.record_type,
+            ontology_name=req.ontology_name,
+            object_type=req.object_type,
+            id_field=req.id_field,
+            source_id_field=req.source_id_field,
+            field_rules=field_rules,
+            status=req.status,
+        )
+        if req.status == "active":
+            profile = mapping_store.activate_profile(profile.id)
+        return profile_to_dict(profile)
+
+    @app.put("/api/mappings/profiles/{profile_id}")
+    def update_mapping_profile(profile_id: str, req: SaveMappingProfileRequest = Body()):
+        profile = mapping_store.get_profile(profile_id)
+        if profile is None:
+            raise HTTPException(404, f"Mapping profile not found: {profile_id}")
+        if req.status == "active":
+            existing_active = mapping_store.get_active_profile(req.connector_name, req.record_type)
+            if existing_active is not None and existing_active.id != profile_id:
+                raise HTTPException(
+                    409,
+                    f"Active mapping already exists: {existing_active.name}",
+                )
+        profile.name = req.name
+        profile.connector_name = req.connector_name
+        profile.record_type = req.record_type
+        profile.ontology_name = req.ontology_name
+        profile.object_type = req.object_type
+        profile.id_field = req.id_field
+        profile.source_id_field = req.source_id_field
+        profile.field_rules = [
+            FieldRule(source=r.source, target=r.target, transform=r.transform)
+            for r in req.field_rules
+        ]
+        profile.status = req.status
+        profile = mapping_store.update_profile(profile)
+        if req.status == "active":
+            profile = mapping_store.activate_profile(profile.id)
+        return profile_to_dict(profile)
+
+    @app.post("/api/mappings/profiles/{profile_id}/activate")
+    def activate_mapping_profile(profile_id: str):
+        try:
+            profile = mapping_store.activate_profile(profile_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        return profile_to_dict(profile)
+
+    @app.delete("/api/mappings/profiles/{profile_id}")
+    def delete_mapping_profile(profile_id: str):
+        if not mapping_store.delete_profile(profile_id):
+            raise HTTPException(404, f"Mapping profile not found: {profile_id}")
+        return {"message": "deleted", "id": profile_id}
+
+    @app.post("/api/mappings/profiles/{profile_id}/preview")
+    def preview_mapping_profile(profile_id: str, limit: int = 10):
+        profile = mapping_store.get_profile(profile_id)
+        if profile is None:
+            raise HTTPException(404, f"Mapping profile not found: {profile_id}")
+        results = mapping_service.preview(profile, limit=limit)
+        return {"profile_id": profile_id, "previews": [r.model_dump() for r in results]}
+
+    @app.post("/api/mappings/profiles/{profile_id}/sync")
+    def sync_mapping_profile(profile_id: str, body: SyncMappingRequest = Body(default=SyncMappingRequest())):
+        profile = mapping_store.get_profile(profile_id)
+        if profile is None:
+            raise HTTPException(404, f"Mapping profile not found: {profile_id}")
+        if not resolved_store_path and not database_url:
+            raise HTTPException(400, "未配置 store-path 或 database-url，无法同步到 Ontology")
+        try:
+            ontology_service = resolve_ontology_service(
+                manager,
+                profile.ontology_name,
+                resolved_store_path,
+                database_url,
+            )
+        except FileNotFoundError:
+            raise HTTPException(404, f"Ontology not found: {profile.ontology_name}")
+        try:
+            result = mapping_service.sync_profile(
+                profile_id,
+                ontology_service,
+                resync=body.resync,
+                run_id=body.run_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        runtime_platform["instance"] = None
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="MappingSync",
+                    target_id=profile_id,
+                    status="success",
+                    success=True,
+                    message=f"同步 {result.get('synced', 0)} 条记录",
+                )
+            )
+        return result
+
+    @app.get("/api/mappings/sync-runs")
+    def list_mapping_sync_runs(profile_id: str | None = None, limit: int = 50):
+        runs = mapping_store.list_sync_runs(profile_id, limit=limit)
+        return {"runs": [r.model_dump() for r in runs], "count": len(runs)}
 
     @app.post("/api/connectors/{name}/task")
     def generate_connector_task(name: str):
@@ -719,6 +897,10 @@ def create_app(
     @app.get("/connectors")
     def connectors_page():
         return FileResponse(STATIC_DIR / "connectors.html")
+
+    @app.get("/mappings")
+    def mappings_page():
+        return FileResponse(STATIC_DIR / "mappings.html")
 
     @app.get("/settings/llm")
     def llm_settings_page():
