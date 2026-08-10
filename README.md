@@ -36,19 +36,82 @@
 
 ## 快速开始
 
+### 环境要求
+
+- Python **≥ 3.11**
+- 本机演示无需 PostgreSQL、LLM、真实 IM/邮件；示例数据启动时自动注入
+
 ### 安装
 
 ```bash
-pip install -e ".[dev,chat,studio]"
+pip install -e .
 ```
+
+开发/跑测试时安装 dev 依赖：
+
+```bash
+pip install -e ".[dev]"
+```
+
+默认安装已包含 **Chainlit 对话界面**（`chainlit`）与 **LangGraph 审批 checkpoint 持久化**（`langgraph-checkpoint-sqlite`），可直接运行 `chainlit run chainlit_app.py` 与审批工作台。
 
 可选 extras：
 
 | Extra | 用途 |
 |-------|------|
 | `dev` | pytest |
-| `chat` | Chainlit 对话界面 |
+| `chat` | 与默认安装相同（Chainlit）；保留以兼容旧命令 |
+| `checkpoint` | 与默认安装相同（SQLite checkpoint）；保留以兼容旧命令 |
 | `studio` | LangGraph Studio 调试 |
+| `postgres` | PostgreSQL 持久化 |
+
+### 本机业务演示（推荐）
+
+适合在自己电脑上向业务方演示「对话查询 → 业务操作 → 审批 → 看板 → 审计」完整闭环。**不需要**配置 LLM、真实 ERP、IM 或邮件（默认规则引擎 + mock 通知即可）。
+
+**1. 准备共享数据目录**（Chainlit 与 Admin 必须指向同一数据库）：
+
+```bash
+mkdir -p data
+export ONTOLOGY_STORE_PATH=./data/demo.db
+export ONTOLOGY_SEED=true
+```
+
+**2. 终端 A — 启动运营后台**：
+
+```bash
+ontology-admin \
+  --store-path ./data/demo.db \
+  --ontology-db ./data/demo.db \
+  --port 8080
+```
+
+打开 http://localhost:8080/operations（样机看板、审批工作台、审计日志）。
+
+**3. 终端 B — 启动对话界面**：
+
+```bash
+chainlit run chainlit_app.py
+```
+
+打开 http://localhost:8000
+
+**4. 建议演示话术**（在 Chainlit 中依次输入）：
+
+| 步骤 | 输入 | 展示点 |
+|------|------|--------|
+| 1 | `查询所有可用样机` | 自然语言查询 → 结构化结果 |
+| 2 | `SN-2024-001 归属哪个项目` | 关系遍历 |
+| 3 | `样机看板统计` | 运营指标汇总 |
+| 4 | `预约 SN-2024-003` | 审批门禁（弹出批准/拒绝按钮） |
+
+批准后切换到运营中心，展示看板变化与审计日志。可选补充页面：
+
+- http://localhost:8080/visualize — 本体关系图
+- http://localhost:8080/connectors — 数据采集配置
+- http://localhost:8080/settings/llm — LLM 配置（有内网模型时可现场演示）
+
+> **提示**：若 `ontology-admin` / `chainlit` 命令找不到，改用 `python3 -m ontology_platform.admin` 与 `python3 -m chainlit run chainlit_app.py`。Admin 仅供本机/内网演示，勿暴露到公网（当前无登录鉴权）。
 
 ### 运行 Demo（命令行）
 
@@ -62,7 +125,10 @@ ontology-platform --app prototype --seed --query "查询所有可用样机"
 
 ### Chainlit 对话界面（智能体前端）
 
+本机演示见上方 [本机业务演示](#本机业务演示推荐)。单独启动：
+
 ```bash
+export ONTOLOGY_STORE_PATH=./data/demo.db   # 可选，启用持久化与审批 checkpoint
 chainlit run chainlit_app.py
 ```
 
@@ -85,6 +151,8 @@ chainlit run chainlit_app.py
 
 ### 本体管理界面 & 可视化
 
+本机演示见上方 [本机业务演示](#本机业务演示推荐)。单独启动：
+
 ```bash
 ontology-admin --port 8080
 # 指定目录：ontology-admin --dir ./my_ontologies --port 8080
@@ -100,10 +168,10 @@ ontology-admin --port 8080
 | 数据连接 | http://localhost:8080/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
 | LLM 配置 | http://localhost:8080/settings/llm | 模型、代理、内网 bypass 开关 |
 
-启动时指定数据路径以启用运营功能：
+启动时指定数据路径以启用运营功能（与 Chainlit 共用同一路径）：
 
 ```bash
-ontology-admin --port 8080 --store-path ./data/platform.db
+ontology-admin --port 8080 --store-path ./data/demo.db --ontology-db ./data/demo.db
 ```
 
 ### LangGraph Studio（编排调试）
@@ -175,14 +243,14 @@ ontology-platform --app prototype --database-url "$ONTOLOGY_DATABASE_URL" --seed
 
 `AgentConfig` 支持 `store_backend=postgres` 或 `auto`（检测 `database_url`）。安装：`pip install -e ".[postgres]"`。
 
-LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`，安装：`pip install -e ".[checkpoint]"`。
+LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`（默认安装已包含 `langgraph-checkpoint-sqlite`）。
 
 ### 审批工作台
 
-运营中心「审批工作台」Tab 可查看 pending 审批，并直接批准/拒绝（需配置 `--store-path` 以共享运行时 checkpoint）：
+运营中心「审批工作台」Tab 可查看 pending 审批，并直接批准/拒绝。需与 Chainlit 配置相同的 `--store-path`，以共享运行时 checkpoint：
 
 ```bash
-ontology-admin --store-path ./data/platform.db --ontology-db ./data/prototype.db --port 8080
+ontology-admin --store-path ./data/demo.db --ontology-db ./data/demo.db --port 8080
 # http://localhost:8080/operations → 样机看板 / 审批工作台（支持批量批准）
 ```
 
@@ -265,6 +333,16 @@ ARCHITECTURE.md        # 模式 A 架构文档
 ```bash
 pytest   # 含 connector 测试
 ```
+
+## 版本说明
+
+当前版本 **v0.1.0** 定位为**技术预览 / 本机·内网演示**：
+
+| 场景 | 是否适合 |
+|------|----------|
+| 本机向业务方演示 | ✅ |
+| 内网 PoC / 二次开发 | ✅ |
+| 公网生产部署 | ❌（缺 Admin 鉴权、一键部署包；见扩展路线） |
 
 ## 扩展路线
 
