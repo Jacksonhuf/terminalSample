@@ -10,7 +10,7 @@ export async function mount(container, params, ctx) {
       document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('panel-' + name).classList.add('active');
-      if (name === 'profiles') switchTab(params.tab || 'profiles');
+      if (name === 'profiles') loadProfiles();
       if (name === 'proxy') loadProxy();
     }
 
