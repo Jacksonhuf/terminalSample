@@ -39,16 +39,20 @@
 ### 安装
 
 ```bash
-pip install -e ".[dev,chat,studio]"
+pip install -e ".[dev]"
 ```
+
+默认安装已包含 **Chainlit 对话界面**（`chainlit`）与 **LangGraph 审批 checkpoint 持久化**（`langgraph-checkpoint-sqlite`），可直接运行 `chainlit run chainlit_app.py` 与审批工作台。
 
 可选 extras：
 
 | Extra | 用途 |
 |-------|------|
 | `dev` | pytest |
-| `chat` | Chainlit 对话界面 |
+| `chat` | 与默认安装相同（Chainlit）；保留以兼容旧命令 |
+| `checkpoint` | 与默认安装相同（SQLite checkpoint）；保留以兼容旧命令 |
 | `studio` | LangGraph Studio 调试 |
+| `postgres` | PostgreSQL 持久化 |
 
 ### 运行 Demo（命令行）
 
@@ -175,7 +179,7 @@ ontology-platform --app prototype --database-url "$ONTOLOGY_DATABASE_URL" --seed
 
 `AgentConfig` 支持 `store_backend=postgres` 或 `auto`（检测 `database_url`）。安装：`pip install -e ".[postgres]"`。
 
-LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`，安装：`pip install -e ".[checkpoint]"`。
+LangGraph 审批状态默认持久化到 `{store}.checkpoints.db`（默认安装已包含 `langgraph-checkpoint-sqlite`）。
 
 ### 审批工作台
 
