@@ -3,14 +3,14 @@ export async function mount(container, params, ctx) {
   container.innerHTML = html;
   const navigate = ctx.navigate;
   const escAttr = ctx.escAttr || ((s) => String(s).replace(/"/g, '&quot;'));
-  let activeTab = 'dashboard';
+  let activeTab = 'overview';
 
     function switchTab(name) {
       activeTab = name;
       document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('panel-' + name).classList.add('active');
-      if (name === 'dashboard') loadDashboard();
+      if (name === 'overview') loadOverview();
       if (name === 'audit') loadAuditLogs();
       if (name === 'approvals') loadApprovals();
       if (name === 'messages') loadMessageLogs();
@@ -46,10 +46,8 @@ export async function mount(container, params, ctx) {
         parts.push(status.approvals_configured ? '审批: 已配置' : '审批: 未配置');
         parts.push(status.integrations_configured ? '出站消息: 已配置' : '出站消息: 未配置');
         parts.push(status.runtime_configured ? '运行时: 已配置' : '运行时: 未配置');
-        parts.push(status.prototype_configured ? '样机看板: 已配置' : '样机看板: 未配置');
         document.getElementById('status-info').textContent = parts.join(' | ');
         document.getElementById('run-outreach-btn').disabled = !status.integrations_configured;
-        document.getElementById('seed-btn').disabled = !status.prototype_configured;
       } catch (e) {
         document.getElementById('status-info').textContent = e.message;
       }
@@ -72,57 +70,36 @@ export async function mount(container, params, ctx) {
         </div>`;
     }
 
-    async function loadDashboard() {
-      const target = document.getElementById('dashboard-content');
+    async function loadOverview() {
+      const target = document.getElementById('overview-content');
       try {
-        const data = await api('/prototype/dashboard');
+        const data = await api('/operations/overview');
         if (!data.configured) {
           target.innerHTML = `<div class="empty-state card">${escHtml(data.message || '未配置运行时平台')}</div>`;
           return;
         }
-        const summary = data.summary || {};
-        const byStatus = data.by_status || {};
-        const byModel = data.by_model || {};
+        const runs = data.recent_connector_runs || [];
         target.innerHTML = `
           <div class="dashboard-grid">
-            <div class="stat-card"><div class="label">样机总数</div><div class="value">${summary.prototype_total ?? 0}</div></div>
-            <div class="stat-card"><div class="label">使用中</div><div class="value">${(data.in_use || []).length}</div></div>
-            <div class="stat-card"><div class="label">活跃预约</div><div class="value">${summary.reservation_active ?? 0}</div></div>
-            <div class="stat-card"><div class="label">逾期预约</div><div class="value">${summary.reservation_overdue ?? 0}</div></div>
+            <div class="stat-card"><div class="label">待审批</div><div class="value">${data.pending_approvals ?? 0}</div></div>
+            <div class="stat-card"><div class="label">待跟催</div><div class="value">${data.pending_outreach ?? 0}</div></div>
+            <div class="stat-card"><div class="label">近期消息</div><div class="value">${data.recent_messages ?? 0}</div></div>
+            <div class="stat-card"><div class="label">近期审计</div><div class="value">${data.recent_audit_count ?? 0}</div></div>
           </div>
-          <div class="card">
-            <div class="stats">
-              ${Object.entries(byStatus).map(([k, v]) => `<span class="stat"><strong>${escHtml(k)}</strong>: ${v}</span>`).join('')}
-            </div>
-          </div>
-          <div class="card" style="margin-top:12px">
-            <div class="stats">
-              ${Object.entries(byModel).map(([k, v]) => `<span class="stat"><strong>${escHtml(k)}</strong>: ${v}</span>`).join('')}
-            </div>
-          </div>
-          ${renderKeyValueTable('使用中样机', data.in_use || [], [
-            { key: 'prototype_id', label: '样机 ID' },
-            { key: 'model', label: '型号' },
-            { key: 'custodian_id', label: '保管人' },
+          ${renderKeyValueTable('最近审计', data.recent_audit || [], [
+            { key: 'timestamp', label: '时间' },
+            { key: 'action_name', label: '动作' },
+            { key: 'user_id', label: '用户' },
+            { key: 'status', label: '状态' },
           ])}
-          ${renderKeyValueTable('逾期预约', data.overdue_reservations || [], [
-            { key: 'reservation_id', label: '预约 ID' },
-            { key: 'prototype_id', label: '样机' },
-            { key: 'person_id', label: '预约人' },
-            { key: 'end_date', label: '截止日' },
+          ${renderKeyValueTable('最近采集任务', runs, [
+            { key: 'connector_name', label: '连接器' },
+            { key: 'status', label: '状态' },
+            { key: 'records_captured', label: '采集条数' },
+            { key: 'started_at', label: '开始时间' },
           ])}`;
       } catch (e) {
         target.innerHTML = `<div class="empty-state card">${escHtml(e.message)}</div>`;
-      }
-    }
-
-    async function seedPrototype() {
-      try {
-        const result = await api('/prototype/seed', { method: 'POST' });
-        toast(result.message || '演示数据已写入');
-        loadDashboard();
-      } catch (e) {
-        toast(e.message, 'error');
       }
     }
 
@@ -336,8 +313,8 @@ export async function mount(container, params, ctx) {
 
     loadStatus();
     onApprovalStatusChange();
-    switchTab(params.tab || 'dashboard');
+    switchTab(params.tab === 'dashboard' ? 'overview' : (params.tab || 'overview'));
 
-  Object.assign(window, { getSelectedApprovalIds, seedPrototype, loadAuditLogs, loadDashboard, renderTable, toggleSelectAll, onApprovalStatusChange, runOutreach, switchTab, loadOutreachTasks, loadMessageLogs, loadStatus, renderEmpty, loadApprovals, batchResolve, resolveApproval, renderKeyValueTable });
-  return () => { delete window.batchResolve; delete window.getSelectedApprovalIds; delete window.loadApprovals; delete window.loadAuditLogs; delete window.loadDashboard; delete window.loadMessageLogs; delete window.loadOutreachTasks; delete window.loadStatus; delete window.onApprovalStatusChange; delete window.renderEmpty; delete window.renderKeyValueTable; delete window.renderTable; delete window.resolveApproval; delete window.runOutreach; delete window.seedPrototype; delete window.switchTab; delete window.toggleSelectAll; };
+  Object.assign(window, { getSelectedApprovalIds, loadAuditLogs, loadOverview, renderTable, toggleSelectAll, onApprovalStatusChange, runOutreach, switchTab, loadOutreachTasks, loadMessageLogs, loadStatus, renderEmpty, loadApprovals, batchResolve, resolveApproval, renderKeyValueTable });
+  return () => { delete window.batchResolve; delete window.getSelectedApprovalIds; delete window.loadApprovals; delete window.loadAuditLogs; delete window.loadOverview; delete window.loadMessageLogs; delete window.loadOutreachTasks; delete window.loadStatus; delete window.onApprovalStatusChange; delete window.renderEmpty; delete window.renderKeyValueTable; delete window.renderTable; delete window.resolveApproval; delete window.runOutreach; delete window.switchTab; delete window.toggleSelectAll; };
 }

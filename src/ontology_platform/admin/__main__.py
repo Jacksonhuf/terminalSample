@@ -103,7 +103,7 @@ def main() -> None:
     print(f"  Ontology directory: {args.dir}")
     if audit_path:
         print(f"  Audit / integrations DB: {audit_path}")
-    print(f"  Operations console: http://localhost:{args.port}/admin/operations/dashboard")
+    print(f"  Operations console: http://localhost:{args.port}/admin/operations/overview")
     print(f"  Data connectors: http://localhost:{args.port}/admin/integration/connectors")
     print(f"  Data mappings: http://localhost:{args.port}/admin/integration/mappings/discover")
     print(f"  LLM settings: http://localhost:{args.port}/admin/settings/llm\n")

@@ -164,7 +164,8 @@ class TestAdminAPI:
             assert "shell.js" in editor.text
         visualize = client.get("/visualize", follow_redirects=False)
         assert visualize.status_code in (200, 302)
-        assert client.get("/admin/operations/dashboard").status_code == 200
+        assert client.get("/admin/operations/overview").status_code == 200
+        assert client.get("/admin/apps/prototype/dashboard").status_code == 200
         operations = client.get("/operations", follow_redirects=False)
         assert operations.status_code in (200, 302)
 

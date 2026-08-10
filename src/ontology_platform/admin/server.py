@@ -255,9 +255,6 @@ def create_app(
             "integrations_configured": integrations_path is not None,
             "approvals_configured": approval_store is not None,
             "runtime_configured": bool(resolved_store_path or database_url),
-            "prototype_configured": bool(
-                yaml_path.exists() and (resolved_store_path or database_url)
-            ),
             "connectors_configured": connectors_path.exists(),
             "credentials_configured": credential_store is not None,
             "llm_configured": llm_store is not None,
@@ -270,6 +267,53 @@ def create_app(
             "ontology_db": str(obj_db_path or ""),
             "mapping_db": str(mapping_db),
         }
+
+    @app.get("/api/operations/overview")
+    def operations_overview():
+        """Platform-level operations summary (not app-specific)."""
+        overview: dict = {
+            "configured": bool(resolved_store_path or database_url),
+            "pending_approvals": 0,
+            "recent_audit_count": 0,
+            "recent_messages": 0,
+            "pending_outreach": 0,
+            "recent_audit": [],
+        }
+        if not overview["configured"]:
+            overview["message"] = "未配置运行时平台（需要 store-path 或 database-url）"
+            return overview
+
+        if approval_store is not None:
+            pending = approval_store.list_requests(status="pending", limit=500)
+            overview["pending_approvals"] = len(pending)
+
+        if audit_logger is not None:
+            logs = audit_logger.query(limit=10)
+            overview["recent_audit_count"] = len(logs)
+            overview["recent_audit"] = [log.model_dump() for log in logs[:5]]
+
+        if message_log is not None:
+            msgs = message_log.query(limit=100)
+            overview["recent_messages"] = len(msgs)
+
+        if outreach_store is not None:
+            tasks = outreach_store.list_tasks(status="pending", limit=500)
+            overview["pending_outreach"] = len(tasks)
+
+        if connector_mgr is not None:
+            runs = connector_mgr.store.list_runs(limit=5)
+            overview["recent_connector_runs"] = [
+                {
+                    "id": r.id,
+                    "connector_name": r.connector_name,
+                    "status": r.status,
+                    "records_captured": r.records_captured,
+                    "started_at": r.started_at,
+                }
+                for r in runs
+            ]
+
+        return overview
 
     @app.get("/api/prototype/dashboard")
     def prototype_dashboard():
@@ -964,7 +1008,7 @@ def create_app(
     LEGACY_REDIRECTS = {
         "/editor": "/admin/ontologies/edit",
         "/visualize": "/admin/ontologies/graph",
-        "/operations": "/admin/operations/dashboard",
+        "/operations": "/admin/operations/overview",
         "/connectors": "/admin/integration/connectors",
         "/mappings": "/admin/integration/mappings/discover",
         "/settings/llm": "/admin/settings/llm",

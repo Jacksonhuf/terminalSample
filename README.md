@@ -167,7 +167,8 @@ ontology-admin --port 8080
 | 本体列表 | `/admin/ontologies` | 查看 / 新建 / 删除本体 |
 | 本体编辑器 | `/admin/ontologies/{name}/edit` | 编辑对象类型、属性、关系、动作，保存 YAML |
 | 本体图谱 | `/admin/ontologies/{name}/graph` | 交互式关系可视化 |
-| 运营中心 | `/admin/operations/dashboard` | 样机看板、审批、审计、消息、跟催 |
+| 运营中心 | `/admin/operations/overview` | 平台概览、审批、审计、消息、跟催 |
+| 应用示例 | `/admin/apps/prototype/dashboard` | 样机管理应用看板（演示） |
 | 数据连接 | `/admin/integration/connectors` | Connector 配置、凭据、Computer Use 任务 |
 | 数据映射 | `/admin/integration/mappings/discover` | 暂存数据浏览、字段映射、同步到 Ontology |
 | LLM 配置 | `/admin/settings/llm` | 模型、代理、内网 bypass |
@@ -216,7 +217,8 @@ curl -X POST "http://localhost:8080/api/ontologies/import?overwrite=false" \
 | `/` | `/admin` |
 | `/editor` | `/admin/ontologies/edit` |
 | `/visualize` | `/admin/ontologies/graph` |
-| `/operations` | `/admin/operations/dashboard` |
+| `/operations` | `/admin/operations/overview` |
+| `/admin/operations/dashboard` | `/admin/apps/prototype/dashboard` |
 | `/connectors` | `/admin/integration/connectors` |
 | `/mappings` | `/admin/integration/mappings/discover` |
 | `/settings/llm` | `/admin/settings/llm` |

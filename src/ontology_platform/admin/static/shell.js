@@ -22,11 +22,17 @@ const MENU = [
   {
     group: '运营中心',
     items: [
-      { label: '样机看板', path: '/admin/operations/dashboard' },
+      { label: '平台概览', path: '/admin/operations/overview' },
       { label: '审批工作台', path: '/admin/operations/approvals' },
       { label: '审计日志', path: '/admin/operations/audit' },
       { label: '消息记录', path: '/admin/operations/messages' },
       { label: '跟催任务', path: '/admin/operations/outreach' },
+    ],
+  },
+  {
+    group: '应用示例',
+    items: [
+      { label: '样机看板', path: '/admin/apps/prototype/dashboard' },
     ],
   },
   {
@@ -48,7 +54,8 @@ const ROUTES = [
   { pattern: /^\/admin\/integration\/connectors$/, module: 'connectors', title: '数据连接', breadcrumb: ['数据集成', '数据连接'], params: () => ({ tab: 'connectors' }) },
   { pattern: /^\/admin\/integration\/credentials$/, module: 'connectors', title: '凭据库', breadcrumb: ['数据集成', '凭据库'], params: () => ({ tab: 'credentials' }) },
   { pattern: /^\/admin\/integration\/mappings\/(discover|profiles|sync)$/, module: 'mappings', title: '数据映射', breadcrumb: ['数据集成', '数据映射'], params: (m) => ({ tab: m[1] }) },
-  { pattern: /^\/admin\/operations\/(dashboard|audit|approvals|messages|outreach)$/, module: 'operations', title: '运营中心', breadcrumb: ['运营中心'], params: (m) => ({ tab: m[1] }) },
+  { pattern: /^\/admin\/operations\/(overview|audit|approvals|messages|outreach)$/, module: 'operations', title: '运营中心', breadcrumb: ['运营中心'], params: (m) => ({ tab: m[1] }) },
+  { pattern: /^\/admin\/apps\/prototype\/dashboard$/, module: 'prototype_app', title: '样机看板', breadcrumb: ['应用示例', '样机看板'] },
   { pattern: /^\/admin\/settings\/llm$/, module: 'llm', title: 'LLM 配置', breadcrumb: ['系统设置', 'LLM 配置'], params: () => ({ tab: 'profiles' }) },
   { pattern: /^\/admin\/settings\/proxy$/, module: 'llm', title: '网络与代理', breadcrumb: ['系统设置', '网络与代理'], params: () => ({ tab: 'proxy' }) },
 ];
@@ -57,7 +64,8 @@ const LEGACY_REDIRECTS = {
   '/': '/admin/ontologies',
   '/editor': '/admin/ontologies/edit',
   '/visualize': '/admin/ontologies/graph',
-  '/operations': '/admin/operations/dashboard',
+  '/operations': '/admin/operations/overview',
+  '/admin/operations/dashboard': '/admin/apps/prototype/dashboard',
   '/connectors': '/admin/integration/connectors',
   '/mappings': '/admin/integration/mappings/discover',
   '/settings/llm': '/admin/settings/llm',
@@ -191,7 +199,6 @@ async function loadGlobalStatus() {
     const status = await api('/operations/status');
     const bits = [];
     if (status.runtime_configured) bits.push('运行时 OK');
-    if (status.prototype_configured) bits.push('样机 OK');
     if (status.credentials_configured) bits.push('凭据 OK');
     el.textContent = bits.length ? bits.join(' · ') : '演示模式（未配置 store-path）';
   } catch (e) {
