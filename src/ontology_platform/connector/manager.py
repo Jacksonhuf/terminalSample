@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from ontology_platform.connector.credential_resolver import build_login_task_payload
+from ontology_platform.connector.credential_store import CredentialStore
 from ontology_platform.connector.schema import (
     CaptureBatch,
     ConnectorDef,
@@ -26,10 +28,50 @@ class ConnectorManager:
         connector_dir: str | Path,
         store: ConnectorStore,
         ontology_service: OntologyService | None = None,
+        credential_store: CredentialStore | None = None,
     ) -> None:
         self.connector_dir = Path(connector_dir)
         self.store = store
         self.ontology_service = ontology_service
+        self.credential_store = credential_store
+
+    def _connector_path(self, name: str) -> Path:
+        return self.connector_dir / f"{name}.yaml"
+
+    def save_connector(self, connector: ConnectorDef) -> Path:
+        """Persist connector definition to YAML (no secrets)."""
+        self.connector_dir.mkdir(parents=True, exist_ok=True)
+        path = self._connector_path(connector.name)
+        data = connector.model_dump(mode="json", exclude_none=True)
+        data["mode"] = connector.mode.value
+        if connector.login is None:
+            data.pop("login", None)
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        return path
+
+    def delete_connector(self, name: str) -> bool:
+        path = self._connector_path(name)
+        if path.exists():
+            path.unlink()
+            return True
+        for yaml_path in self.connector_dir.glob("*.yaml"):
+            with open(yaml_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if data.get("name") == name:
+                yaml_path.unlink()
+                return True
+        return False
+
+    def list_connector_defs(self) -> list[ConnectorDef]:
+        return [self.load_connector(name) for name in self.list_connectors()]
+
+    def find_credential_references(self, credential_id: str) -> list[str]:
+        refs: list[str] = []
+        for connector in self.list_connector_defs():
+            if connector.credential_ref == credential_id:
+                refs.append(connector.name)
+        return refs
 
     def load_connector(self, name: str) -> ConnectorDef:
         path = self.connector_dir / f"{name}.yaml"
@@ -221,11 +263,14 @@ class ConnectorManager:
         """Build instructions for a Computer Use agent to execute capture."""
         connector = self.load_connector(connector_name)
         run_id = self.start_run(connector_name)
+        login = build_login_task_payload(connector, self.credential_store)
         return {
             "run_id": run_id,
             "connector": connector.name,
             "source_url": connector.source_url,
             "mode": connector.mode.value,
+            "login": login,
+            "credentials_injected_via_env": login.get("password_provided", False),
             "instructions": connector.capture_instructions,
             "hints": connector.computer_use_hints,
             "expected_record_types": [m.record_type for m in connector.record_mappings],

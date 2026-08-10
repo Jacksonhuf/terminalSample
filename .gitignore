@@ -9,3 +9,4 @@ build/
 *.egg
 .chainlit/
 .files/
+examples/connector.db

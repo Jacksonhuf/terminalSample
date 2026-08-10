@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+from ontology_platform.connector.credential_resolver import inject_credentials_env
+from ontology_platform.connector.credential_store import CredentialStore
 from ontology_platform.connector.manager import ConnectorManager
 from ontology_platform.connector.schema import CaptureBatch
 from ontology_platform.connector.store import ConnectorStore
@@ -20,8 +22,10 @@ def _build_manager(
     db_path: Path,
     ontology_yaml: Path | None = None,
     ontology_db: Path | None = None,
+    credential_db: Path | None = None,
 ) -> ConnectorManager:
     store = ConnectorStore(db_path)
+    credential_store = CredentialStore(credential_db) if credential_db else None
     ontology_service = None
     if ontology_yaml is not None:
         registry = OntologyRegistry.from_yaml(ontology_yaml)
@@ -30,7 +34,7 @@ def _build_manager(
             raise ValueError(f"No ontology found in {ontology_yaml}")
         db = ontology_db or db_path.parent / f"{names[0]}.db"
         ontology_service = OntologyService(registry, names[0], store=SQLiteStore(str(db)))
-    return ConnectorManager(connectors_dir, store, ontology_service)
+    return ConnectorManager(connectors_dir, store, ontology_service, credential_store)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ontology-db",
         help="SQLite path for ontology objects (default: data/<ontology_name>.db)",
+    )
+    parser.add_argument(
+        "--credential-db",
+        help="SQLite path for encrypted credentials (default: --db parent/credentials.db)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -83,22 +91,33 @@ def main(argv: list[str] | None = None) -> int:
     db_path = Path(args.db)
     ontology_yaml = Path(args.ontology) if args.ontology else None
     ontology_db = Path(args.ontology_db) if getattr(args, "ontology_db", None) else None
+    credential_db = Path(args.credential_db) if getattr(args, "credential_db", None) else db_path.parent / "credentials.db"
 
     if args.command == "list":
-        mgr = _build_manager(connectors_dir, db_path)
+        mgr = _build_manager(connectors_dir, db_path, credential_db=credential_db)
         for name in mgr.list_connectors():
             print(name)
         return 0
 
     if args.command == "task":
-        mgr = _build_manager(connectors_dir, db_path)
+        mgr = _build_manager(connectors_dir, db_path, credential_db=credential_db)
         task = mgr.get_computer_use_task(args.connector)
+        connector = mgr.load_connector(args.connector)
+        env_note = inject_credentials_env(connector, mgr.credential_store)
         if args.json:
             print(json.dumps(task, ensure_ascii=False, indent=2))
         else:
             print(f"Connector: {task['connector']}")
             print(f"Run ID:    {task['run_id']}")
             print(f"URL:       {task['source_url']}")
+            if task.get("login"):
+                login = task["login"]
+                print(f"Login URL: {login.get('login_url', '')}")
+                print(f"Username:  {login.get('username', '')}")
+                print(f"Password:  {'(via CU_PASSWORD env)' if login.get('password_provided') else '(not configured)'}")
+            if env_note.get("CU_PASSWORD"):
+                print("\nCredentials available via environment variables:")
+                print("  CU_USERNAME, CU_PASSWORD, CU_LOGIN_URL (when configured)")
             print()
             print("Instructions:")
             print(task["instructions"])
@@ -113,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "ingest":
-        mgr = _build_manager(connectors_dir, db_path)
+        mgr = _build_manager(connectors_dir, db_path, credential_db=credential_db)
         data = json.loads(Path(args.capture_file).read_text(encoding="utf-8"))
         batch = CaptureBatch.model_validate(data)
         result = mgr.ingest_batch(batch)
@@ -121,13 +140,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "sync":
-        mgr = _build_manager(connectors_dir, db_path, ontology_yaml, ontology_db)
+        mgr = _build_manager(
+            connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
+        )
         result = mgr.sync_to_ontology(args.connector, run_id=args.run_id)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "ingest-file":
-        mgr = _build_manager(connectors_dir, db_path, ontology_yaml, ontology_db)
+        mgr = _build_manager(
+            connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
+        )
         result = mgr.ingest_file(args.connector)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

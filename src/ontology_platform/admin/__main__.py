@@ -57,6 +57,24 @@ def main() -> None:
         default="",
         help="PostgreSQL URL for ontology store (e.g. postgresql://user:pass@localhost/db)",
     )
+    parser.add_argument(
+        "--connectors-dir",
+        type=str,
+        default="",
+        help="Connector YAML directory (default: <dir>/connectors)",
+    )
+    parser.add_argument(
+        "--credential-db",
+        type=str,
+        default="",
+        help="SQLite path for encrypted credentials (default: --store-path)",
+    )
+    parser.add_argument(
+        "--connector-db",
+        type=str,
+        default="",
+        help="SQLite path for connector staging runs (default: data/connector.db)",
+    )
     args = parser.parse_args()
 
     store_path = args.store_path or None
@@ -65,6 +83,9 @@ def main() -> None:
     ontology_yaml = args.ontology_yaml or None
     ontology_db = args.ontology_db or None
     database_url = args.database_url or None
+    connectors_dir = args.connectors_dir or None
+    credential_db = args.credential_db or store_path
+    connector_db = args.connector_db or None
 
     app = create_app(
         args.dir,
@@ -74,12 +95,16 @@ def main() -> None:
         ontology_db_path=ontology_db,
         store_path=store_path,
         database_url=database_url,
+        connectors_dir=connectors_dir,
+        credential_db_path=credential_db,
+        connector_db_path=connector_db,
     )
     print(f"\n  Ontology Admin UI: http://localhost:{args.port}")
     print(f"  Ontology directory: {args.dir}")
     if audit_path:
         print(f"  Audit / integrations DB: {audit_path}")
-    print(f"  Operations console: http://localhost:{args.port}/operations\n")
+    print(f"  Operations console: http://localhost:{args.port}/operations")
+    print(f"  Data connectors: http://localhost:{args.port}/connectors\n")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 

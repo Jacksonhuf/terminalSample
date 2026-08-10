@@ -30,6 +30,16 @@ class RecordMapping(BaseModel):
     field_mappings: list[FieldMapping] = Field(default_factory=list)
 
 
+class LoginConfig(BaseModel):
+    """Login flow hints for Computer Use (credentials stored separately)."""
+
+    type: str = "form"
+    login_url: str = ""
+    username_field: str = "username"
+    password_field: str = "password"
+    post_login_wait: str = ""
+
+
 class ConnectorDef(BaseModel):
     """Definition of a data connector (Palantir Pipeline / Data Connection inspired)."""
 
@@ -38,6 +48,8 @@ class ConnectorDef(BaseModel):
     mode: CaptureMode = CaptureMode.COMPUTER_USE
     source_url: str = ""
     source_file: str = ""
+    credential_ref: str = ""
+    login: LoginConfig | None = None
     capture_instructions: str = ""
     record_mappings: list[RecordMapping] = Field(default_factory=list)
     computer_use_hints: list[str] = Field(default_factory=list)

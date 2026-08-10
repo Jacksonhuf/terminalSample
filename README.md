@@ -96,7 +96,8 @@ ontology-admin --port 8080
 | 编辑器 | http://localhost:8080/editor | 编辑对象/关系/动作，保存 YAML |
 | 可视化 | http://localhost:8080/visualize | 交互式本体图谱 |
 | 审计日志 | http://localhost:8080/api/audit-logs | 需 `--store-path` 配置数据库 |
-| 运营中心 | http://localhost:8080/operations | 审计 / 消息 / 跟催任务可视化 |
+| 运营中心 | http://localhost:8080/operations | 审计 / 审批 / 样机看板 / 消息 / 跟催 |
+| 数据连接 | http://localhost:8080/connectors | 配置采集 URL、凭据库、生成 Computer Use 任务 |
 
 启动时指定数据路径以启用运营功能：
 

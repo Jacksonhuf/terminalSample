@@ -4,12 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ontology_platform.admin.manager import OntologyManager
+from ontology_platform.admin.connectors_api import (
+    CreateCredentialRequest,
+    RotatePasswordRequest,
+    SaveConnectorRequest,
+    UpdateCredentialRequest,
+    build_connector_manager,
+    connector_to_public,
+    save_connector_from_request,
+)
 from ontology_platform.ontology.schema import (
     ActionDef,
     LinkDef,
@@ -47,6 +56,9 @@ def create_app(
     ontology_db_path: str | Path | None = None,
     store_path: str | Path | None = None,
     database_url: str | None = None,
+    connectors_dir: str | Path | None = None,
+    credential_db_path: str | Path | None = None,
+    connector_db_path: str | Path | None = None,
 ) -> FastAPI:
     base_dir = Path(ontology_dir) if ontology_dir else Path(__file__).parent.parent.parent.parent / "examples"
     manager = OntologyManager(base_dir)
@@ -61,6 +73,8 @@ def create_app(
     from ontology_platform.ontology.service import OntologyService
     from ontology_platform.ontology.store.sqlite import SQLiteStore
     from ontology_platform.runtime import build_runtime_platform
+    from ontology_platform.connector.credential_store import CredentialStore
+    from ontology_platform.governance.audit import AuditLogEntry
 
     resolved_store_path = store_path or audit_path
     audit_logger = AuditLogger(resolved_store_path) if resolved_store_path else None
@@ -70,6 +84,14 @@ def create_app(
     outreach_store = OutreachStore(integrations_path) if integrations_path else None
     yaml_path = Path(ontology_yaml_path) if ontology_yaml_path else base_dir / "prototype_ontology.yaml"
     obj_db_path = Path(ontology_db_path) if ontology_db_path else None
+    connectors_path = Path(connectors_dir) if connectors_dir else base_dir / "connectors"
+    cred_db = credential_db_path or resolved_store_path
+    credential_store = CredentialStore(cred_db) if cred_db else None
+    connector_mgr = build_connector_manager(
+        connectors_path,
+        Path(connector_db_path) if connector_db_path else None,
+        credential_store,
+    )
     runtime_platform = {"instance": None}
 
     def _get_runtime_platform():
@@ -195,6 +217,10 @@ def create_app(
             "prototype_configured": bool(
                 yaml_path.exists() and (resolved_store_path or database_url)
             ),
+            "connectors_configured": connectors_path.exists(),
+            "credentials_configured": credential_store is not None,
+            "connectors_dir": str(connectors_path),
+            "credential_db": str(cred_db) if cred_db else "",
             "audit_path": str(resolved_store_path) if resolved_store_path else "",
             "integrations_path": str(integrations_path) if integrations_path else "",
             "database_url": database_url or "",
@@ -271,6 +297,146 @@ def create_app(
             "failed": failed,
             "approved": body.approved,
         }
+
+    @app.get("/api/credentials")
+    def list_credentials():
+        if credential_store is None:
+            return {"credentials": [], "configured": False, "message": "未配置凭据存储路径"}
+        items = credential_store.list_public()
+        return {"credentials": [c.model_dump() for c in items], "count": len(items), "configured": True}
+
+    @app.post("/api/credentials")
+    def create_credential(req: CreateCredentialRequest = Body()):
+        if credential_store is None:
+            raise HTTPException(400, "未配置凭据存储路径")
+        try:
+            cred = credential_store.create(
+                name=req.name,
+                username=req.username,
+                password=req.password,
+                credential_id=req.credential_id or None,
+                login_url=req.login_url,
+                notes=req.notes,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="CredentialCreated",
+                    target_id=cred.id,
+                    status="success",
+                    success=True,
+                    message=f"创建凭据 {cred.name}",
+                )
+            )
+        return cred.model_dump()
+
+    @app.put("/api/credentials/{credential_id}")
+    def update_credential(credential_id: str, req: UpdateCredentialRequest = Body()):
+        if credential_store is None:
+            raise HTTPException(400, "未配置凭据存储路径")
+        cred = credential_store.update(
+            credential_id,
+            name=req.name,
+            username=req.username,
+            login_url=req.login_url,
+            notes=req.notes,
+        )
+        if cred is None:
+            raise HTTPException(404, f"Credential not found: {credential_id}")
+        return cred.model_dump()
+
+    @app.put("/api/credentials/{credential_id}/password")
+    def rotate_credential_password(credential_id: str, req: RotatePasswordRequest = Body()):
+        if credential_store is None:
+            raise HTTPException(400, "未配置凭据存储路径")
+        cred = credential_store.rotate_password(credential_id, req.password)
+        if cred is None:
+            raise HTTPException(404, f"Credential not found: {credential_id}")
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="CredentialPasswordRotated",
+                    target_id=credential_id,
+                    status="success",
+                    success=True,
+                    message="轮换凭据密码",
+                )
+            )
+        return cred.model_dump()
+
+    @app.delete("/api/credentials/{credential_id}")
+    def delete_credential(credential_id: str):
+        if credential_store is None:
+            raise HTTPException(400, "未配置凭据存储路径")
+        refs = connector_mgr.find_credential_references(credential_id)
+        if refs:
+            raise HTTPException(409, f"凭据仍被连接器引用: {', '.join(refs)}")
+        if not credential_store.delete(credential_id):
+            raise HTTPException(404, f"Credential not found: {credential_id}")
+        return {"message": "deleted", "id": credential_id}
+
+    @app.get("/api/connectors")
+    def list_connectors_api():
+        connectors = connector_mgr.list_connector_defs()
+        return {
+            "connectors": [connector_to_public(c) for c in connectors],
+            "count": len(connectors),
+            "directory": str(connectors_path),
+        }
+
+    @app.get("/api/connectors/{name}")
+    def get_connector_api(name: str):
+        try:
+            connector = connector_mgr.load_connector(name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Connector not found: {name}")
+        return connector_to_public(connector)
+
+    @app.put("/api/connectors/{name}")
+    def save_connector_api(name: str, req: SaveConnectorRequest = Body()):
+        if req.name != name:
+            raise HTTPException(400, "Connector name in body must match URL")
+        connector = save_connector_from_request(connector_mgr, req)
+        return connector_to_public(connector)
+
+    @app.post("/api/connectors")
+    def create_connector_api(req: SaveConnectorRequest = Body()):
+        try:
+            connector_mgr.load_connector(req.name)
+            raise HTTPException(409, f"Connector already exists: {req.name}")
+        except FileNotFoundError:
+            pass
+        connector = save_connector_from_request(connector_mgr, req)
+        return connector_to_public(connector)
+
+    @app.delete("/api/connectors/{name}")
+    def delete_connector_api(name: str):
+        if not connector_mgr.delete_connector(name):
+            raise HTTPException(404, f"Connector not found: {name}")
+        return {"message": "deleted", "name": name}
+
+    @app.post("/api/connectors/{name}/task")
+    def generate_connector_task(name: str):
+        try:
+            task = connector_mgr.get_computer_use_task(name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Connector not found: {name}")
+        if audit_logger:
+            audit_logger.log(
+                AuditLogEntry(
+                    user_id="admin-ui",
+                    action_name="ConnectorTaskGenerated",
+                    target_id=name,
+                    status="success",
+                    success=True,
+                    message=f"生成采集任务 run_id={task.get('run_id')}",
+                )
+            )
+        return task
 
     @app.get("/api/ontologies")
     def list_ontologies():
@@ -404,6 +570,10 @@ def create_app(
     @app.get("/operations")
     def operations_page():
         return FileResponse(STATIC_DIR / "operations.html")
+
+    @app.get("/connectors")
+    def connectors_page():
+        return FileResponse(STATIC_DIR / "connectors.html")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
