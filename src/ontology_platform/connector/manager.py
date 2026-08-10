@@ -17,6 +17,7 @@ from ontology_platform.connector.schema import (
     RecordMapping,
 )
 from ontology_platform.connector.store import ConnectorStore
+from ontology_platform.mapping.store import MappingStore
 from ontology_platform.ontology.service import OntologyService
 
 
@@ -29,11 +30,13 @@ class ConnectorManager:
         store: ConnectorStore,
         ontology_service: OntologyService | None = None,
         credential_store: CredentialStore | None = None,
+        mapping_store: MappingStore | None = None,
     ) -> None:
         self.connector_dir = Path(connector_dir)
         self.store = store
         self.ontology_service = ontology_service
         self.credential_store = credential_store
+        self.mapping_store = mapping_store
 
     def _connector_path(self, name: str) -> Path:
         return self.connector_dir / f"{name}.yaml"
@@ -135,7 +138,7 @@ class ConnectorManager:
             raise ValueError("OntologyService required for sync")
 
         connector = self.load_connector(connector_name)
-        mapping_index = {m.record_type: m for m in connector.record_mappings}
+        yaml_mapping_index = {m.record_type: m for m in connector.record_mappings}
         staged = self.store.list_unsynced(connector_name)
 
         if run_id:
@@ -143,16 +146,37 @@ class ConnectorManager:
 
         synced = 0
         errors: list[str] = []
+        mapping_service = None
+        if self.mapping_store is not None:
+            from ontology_platform.mapping.service import MappingService
+
+            mapping_service = MappingService(self.mapping_store, self.store)
 
         for record in staged:
-            mapping = mapping_index.get(record.record_type)
-            if mapping is None:
-                errors.append(f"No mapping for record_type: {record.record_type}")
-                continue
-            try:
+            profile = None
+            if self.mapping_store is not None:
+                profile = self.mapping_store.get_active_profile(connector_name, record.record_type)
+
+            if profile is not None and mapping_service is not None:
+                object_type = profile.object_type
+                id_field = profile.id_field
+                try:
+                    properties = mapping_service.apply_field_rules(record.payload, profile)
+                except Exception as exc:
+                    errors.append(f"{record.external_id}: {exc}")
+                    continue
+            else:
+                mapping = yaml_mapping_index.get(record.record_type)
+                if mapping is None:
+                    errors.append(f"No mapping for record_type: {record.record_type}")
+                    continue
                 properties = self._apply_mapping(record.payload, mapping)
-                object_id = str(properties.get(mapping.id_field, record.external_id))
-                existing = self.ontology_service.get_object(mapping.object_type, object_id)
+                object_type = mapping.object_type
+                id_field = mapping.id_field
+
+            try:
+                object_id = str(properties.get(id_field, record.external_id))
+                existing = self.ontology_service.get_object(object_type, object_id)
                 if existing:
                     props = dict(existing.properties)
                     props.update(properties)
@@ -160,14 +184,14 @@ class ConnectorManager:
 
                     self.ontology_service.store.update_object(
                         OntologyObject(
-                            object_type=mapping.object_type,
+                            object_type=object_type,
                             object_id=object_id,
                             properties=props,
                         )
                     )
                 else:
                     self.ontology_service.create_object(
-                        mapping.object_type, properties, object_id=object_id
+                        object_type, properties, object_id=object_id
                     )
                 self.store.mark_synced(record.id, object_id)
                 synced += 1

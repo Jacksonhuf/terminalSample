@@ -141,16 +141,87 @@ class ConnectorStore:
         return record
 
     def list_unsynced(self, connector_name: str | None = None, limit: int = 500) -> list[StagedRecord]:
-        query = "SELECT * FROM connector_staged_records WHERE synced=0"
+        return self.list_staged_records(connector_name=connector_name, synced=False, limit=limit)
+
+    def list_staged_records(
+        self,
+        connector_name: str | None = None,
+        record_type: str | None = None,
+        *,
+        synced: bool | None = None,
+        run_id: str | None = None,
+        limit: int = 500,
+    ) -> list[StagedRecord]:
+        query = "SELECT * FROM connector_staged_records WHERE 1=1"
         params: list = []
         if connector_name:
             query += " AND connector_name=?"
             params.append(connector_name)
+        if record_type:
+            query += " AND record_type=?"
+            params.append(record_type)
+        if synced is not None:
+            query += " AND synced=?"
+            params.append(int(synced))
+        if run_id:
+            query += " AND run_id=?"
+            params.append(run_id)
         query += " ORDER BY captured_at LIMIT ?"
         params.append(limit)
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [self._row_to_staged(r) for r in rows]
+
+    def summarize_staged(self, connector_name: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT connector_name, record_type,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN synced=0 THEN 1 ELSE 0 END) AS unsynced,
+                   SUM(CASE WHEN synced=1 THEN 1 ELSE 0 END) AS synced
+            FROM connector_staged_records
+        """
+        params: list = []
+        if connector_name:
+            query += " WHERE connector_name=?"
+            params.append(connector_name)
+        query += " GROUP BY connector_name, record_type ORDER BY connector_name, record_type"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "connector_name": r["connector_name"],
+                "record_type": r["record_type"],
+                "total": r["total"],
+                "unsynced": r["unsynced"],
+                "synced": r["synced"],
+            }
+            for r in rows
+        ]
+
+    def infer_fields(self, connector_name: str, record_type: str, limit: int = 20) -> list[str]:
+        records = self.list_staged_records(
+            connector_name=connector_name,
+            record_type=record_type,
+            limit=limit,
+        )
+        fields: list[str] = []
+        seen: set[str] = set()
+        for record in records:
+            for key in record.payload:
+                if key not in seen:
+                    seen.add(key)
+                    fields.append(key)
+        return fields
+
+    def reset_synced(self, connector_name: str, record_type: str | None = None) -> int:
+        query = "UPDATE connector_staged_records SET synced=0, ontology_object_id=NULL WHERE connector_name=?"
+        params: list = [connector_name]
+        if record_type:
+            query += " AND record_type=?"
+            params.append(record_type)
+        with self._connect() as conn:
+            cur = conn.execute(query, params)
+        return cur.rowcount
 
     def mark_synced(self, record_id: str, ontology_object_id: str) -> None:
         with self._connect() as conn:
