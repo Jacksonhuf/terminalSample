@@ -20,7 +20,9 @@
 │  语义层 — OntologyService                                    │
 │  Object / Link / Action                                      │
 ├─────────────────────────────────────────────────────────────┤
-│  数据层 — Connector (入站) + Channel Adapter (出站) + SQL    │
+│  数据层 — Connector (入站) + Mapping + SQL 暂存              │
+│  Computer Use | Browser Extension | File | API               │
+│  Channel Adapter (IM / 邮件 / 跟催) — 出站                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -33,6 +35,9 @@
 | **Action** | 可执行业务动作，支持审批门禁 + 角色权限 |
 | **LangGraph** | 编排 plan / execute / approval / respond |
 | **Governance** | 审计日志 + admin/operator/viewer 角色 |
+| **Connector** | 入站采集（Computer Use / Browser Extension / File） |
+| **Mapping** | 暂存数据字段 → Ontology 属性映射 |
+| **Channel Adapter** | 出站 IM / 邮件 / 跟催 |
 
 ## 快速开始
 
@@ -169,7 +174,7 @@ ontology-admin --port 8080
 | 本体图谱 | `/admin/ontologies/{name}/graph` | 交互式关系可视化 |
 | 运营中心 | `/admin/operations/overview` | 平台概览、审批、审计、消息、跟催 |
 | 应用示例 | `/admin/apps/prototype/dashboard` | 样机管理应用看板（演示） |
-| 数据连接 | `/admin/integration/connectors` | Connector 配置、凭据、Computer Use 任务 |
+| 数据连接 | `/admin/integration/connectors` | Connector 配置、凭据、Computer Use / Extension 采集 |
 | 数据映射 | `/admin/integration/mappings/discover` | 暂存数据浏览、字段映射、同步到 Ontology |
 | LLM 配置 | `/admin/settings/llm` | 模型、代理、内网 bypass |
 
@@ -336,11 +341,20 @@ export ONTOLOGY_SMTP_HOST=mail.example.com
 
 `Person` 对象需配置 `im_user_id` 和 `email`。完整说明见 [ARCHITECTURE.md](ARCHITECTURE.md#6-出站集成channel-adapterim--邮件--跟催)。
 
-### Data Connector（Computer Use → SQL → Ontology）
+### Data Connector（入站采集 → SQL 暂存 → Ontology）
 
-从只有 Web 界面的外部系统采集数据，先写入 SQL 暂存区，再同步到本体。
+从外部系统采集数据，写入 SQL 暂存区，经映射同步到本体。支持四种连接器模式：
 
-#### LLM Computer Use 自动采集（推荐）
+| 模式 | 说明 | 典型场景 |
+|------|------|----------|
+| `computer_use` | 服务端 LLM + Playwright 驱动浏览器 | 批量采集、无人值守 |
+| `browser_extension` | Chrome 扩展在用户会话中执行 YAML 脚本 | SSO 登录站点、需人工会话 |
+| `file` | 本地 JSON / 文件导入 | 离线、对接导出文件 |
+| `api` | HTTP API 拉取（预留） | 有开放接口的系统 |
+
+采集链路：`Connector 定义 → 采集执行 → CaptureBatch ingest → Mapping sync → OntologyService`
+
+#### LLM Computer Use 自动采集（`computer_use`）
 
 配置连接器 + 凭据 + LLM 后，可一键或定时执行完整采集链路（浏览器操作 → ingest → sync）：
 
@@ -369,9 +383,40 @@ ontology-connector daemon --interval 60 \
 
 Admin **数据连接** 页面（`/admin/integration/connectors`）：
 
-- **立即采集** — 调用已配置 LLM + Playwright 执行采集
+- **立即采集** — 调用已配置 LLM + Playwright 执行采集（`computer_use`）
 - **演示采集 (Mock)** — 使用样例 JSON，适合本机演示
+- **Extension 采集** — 创建浏览器扩展任务，由 Chrome 扩展在用户会话中执行（`browser_extension`）
 - **启用定时采集** — 设置 `interval_sec`，配合 `ontology-connector daemon` 无人值守运行
+
+#### Chrome Browser Extension 采集（`browser_extension`）
+
+适用于只有 Web 界面、且依赖用户 SSO 会话的系统。扩展是**通用协议执行器**，业务步骤在 Connector YAML 的 `browser_script` / `browser_actions` 中配置。
+
+```
+Admin / API  →  BrowserActionManager  →  SQLite (browser_runs)
+                      ↑
+            Chrome Extension（轮询 + DOM 执行）
+                      ↓
+            CaptureBatch → ingest → Mapping → Ontology
+```
+
+**安装扩展**：
+
+1. Chrome 打开 `chrome://extensions` → 开发者模式 → 「加载已解压的扩展程序」→ 选择仓库 `extension/` 目录
+2. 扩展选项中设置平台 Admin 地址（默认 `http://127.0.0.1:8765`）
+
+**发起采集**：
+
+```bash
+# API 创建扩展任务
+curl -X POST http://localhost:8080/api/connectors/browser_demo/browser-run \
+  -H 'Content-Type: application/json' \
+  -d '{"auto_sync": false}'
+```
+
+或在 Admin 数据连接页对 `browser_extension` 连接器点击 **Extension 采集**。扩展轮询 `GET /api/browser/runs/pending` 自动拾取并执行。
+
+Connector 示例见 `examples/connectors/browser_demo.yaml`，扩展说明见 [extension/README.md](extension/README.md)。
 
 #### 手动分步流程（兼容旧方式）
 
@@ -412,27 +457,199 @@ ontology-admin --store-path ./data/demo.db --connector-db ./data/connector.db --
 
 ## 项目结构
 
+### 总览
+
+```
+ontology-agent-platform/
+├── chainlit_app.py              # Chainlit 对话入口
+├── langgraph_studio.py          # LangGraph Studio 调试入口
+├── langgraph.json               # LangGraph Studio 配置
+├── pyproject.toml               # 包定义、CLI 入口、可选依赖
+├── README.md                    # 本文件（快速开始 + 结构说明）
+├── ARCHITECTURE.md              # 架构决策、Palantir 映射、治理细节
+│
+├── extension/                   # Chrome Extension — Browser Action Adapter
+│   ├── manifest.json            # MV3 扩展清单
+│   ├── background/              # Service Worker：轮询任务、协调 Tab
+│   ├── content/                 # Content Script：DOM 命令执行
+│   ├── sidepanel/               # 任务状态侧栏
+│   ├── options/                 # 平台地址、轮询间隔配置
+│   └── README.md                # 扩展安装与协议说明
+│
+├── examples/                    # 示例本体、连接器与采集数据
+│   ├── prototype_ontology.yaml  # 样机管理本体（应用层示例）
+│   ├── demo_ontology.yaml         # 通用 Demo 本体
+│   ├── connectors/              # Connector YAML（erp / file / browser_demo）
+│   ├── captures/                # Computer Use 采集样例 JSON
+│   └── data/                    # Seed 数据
+│
+├── src/ontology_platform/       # 平台核心 Python 包
+│   └── …                        # 见下方「源码包分层」
+│
+└── tests/                       # pytest 测试（147+ 用例）
+```
+
+### 源码包分层
+
+`src/ontology_platform/` 按**体验 → 编排 → 治理 → 语义 → 数据**分层组织：
+
+| 目录 | 层级 | 职责 |
+|------|------|------|
+| `admin/` | 体验层 | FastAPI 运营后台 + SPA（本体/集成/运营/LLM） |
+| `chat/` | 体验层 | Chainlit 用户身份、RBAC 映射辅助 |
+| `agent/` | 编排层 | LangGraph 图、节点、Planner、Tools |
+| `governance/` | 治理层 | 审计日志、RBAC 策略、审批存储 |
+| `ontology/` | 语义层 | Object / Link / Action 模型、Registry、Store |
+| `connector/` | 数据层（入站） | 连接器管理、凭据、采集、暂存、同步 |
+| `mapping/` | 数据层（入站） | 暂存字段 → Ontology 属性映射配置 |
+| `integrations/` | 数据层（出站） | IM / 邮件 Channel、跟催任务 Worker |
+| `llm/` | 基础设施 | LLM Profile 存储、工厂、HTTP 代理 |
+| `apps/` | 应用层 | 样机管理应用（PrototypeApp、看板、分析） |
+| `platform.py` | 入口 | `AgentPlatform` — 对话、动作、审批、审计 |
+| `runtime.py` | 入口 | Admin / API 用运行时平台构建 |
+| `cli.py` | 入口 | `ontology-platform` 命令行 |
+
+### 目录详解
+
 ```
 src/ontology_platform/
-├── ontology/          # 本体核心（schema, service, store/）
-├── connector/         # Data Connector（Computer Use → SQL → sync）
-├── integrations/      # Channel Adapter（IM / 邮件 / 跟催）
-├── agent/             # LangGraph（graph, nodes, planner, tools）
-├── governance/        # 审计日志 + RBAC 策略
-├── platform.py        # AgentPlatform 入口
-├── apps/prototype.py  # 样机管理应用
-├── admin/             # 本体管理 Web UI（SPA、Excel 导入）
-└── chat/              # Chainlit 辅助
-chainlit_app.py        # Chainlit 入口
-langgraph_studio.py    # LangGraph Studio 入口
-examples/              # Ontology YAML + Connector + 采集样例
-ARCHITECTURE.md        # 模式 A 架构文档
+├── platform.py                  # AgentPlatform：chat / execute / resume / audit
+├── runtime.py                   # build_runtime_platform() — Admin 与 Chainlit 共用
+├── cli.py                       # ontology-platform CLI
+│
+├── ontology/                    # 语义层 — Ontology 核心
+│   ├── schema.py                # ObjectType / Link / Action / Property 定义
+│   ├── registry.py              # 从 YAML 加载本体
+│   ├── service.py               # CRUD、Link 遍历、Action 执行
+│   └── store/                   # 持久化：memory / sqlite / postgres
+│
+├── agent/                       # 编排层 — LangGraph
+│   ├── graph.py                 # plan → execute → approval → respond
+│   ├── nodes.py                 # 各节点实现
+│   ├── planner.py               # LLM / 规则 Planner
+│   ├── tools.py                 # Ontology 查询与动作 Tool
+│   ├── state.py                 # Graph State
+│   └── config.py                # AgentConfig（store、governance、LLM）
+│
+├── governance/                  # 治理层
+│   ├── audit.py                 # AuditLogger — Action 审计
+│   ├── policy.py                # RBAC PolicyEngine
+│   ├── approval_store.py        # 审批请求持久化
+│   └── context.py               # 用户/角色上下文
+│
+├── connector/                   # 数据层 — 入站 Connector
+│   ├── schema.py                # ConnectorDef、CaptureBatch、CaptureMode
+│   ├── manager.py               # 加载 YAML、ingest、sync_to_ontology
+│   ├── store.py                 # connector.db — 运行记录与暂存记录
+│   ├── credential_store.py      # 凭据库（加密存储）
+│   ├── cli.py                   # ontology-connector CLI
+│   ├── worker.py                # 定时采集守护进程
+│   ├── capture/                 # LLM + Playwright Computer Use
+│   │   ├── runner.py            # 采集编排入口
+│   │   ├── llm_agent.py         # LLM 浏览器 Agent
+│   │   └── browser.py           # Playwright 封装
+│   └── browser/                 # Chrome Extension 协议
+│       ├── schema.py            # BrowserCommand / PageState 协议
+│       ├── store.py             # browser_runs 任务队列
+│       ├── step_engine.py       # scripted / agent_loop 步骤解析
+│       └── manager.py           # BrowserActionManager
+│
+├── mapping/                     # 数据层 — 映射工作台
+│   ├── schema.py                # MappingProfile、FieldRule
+│   ├── store.py                 # mapping.db
+│   └── service.py               # 发现、试跑、同步
+│
+├── integrations/                # 数据层 — 出站 Channel Adapter
+│   ├── channels/                # chat_cli / email 实现
+│   ├── outreach/                # 跟催任务 Store + Worker
+│   ├── notification.py          # 通知服务门面
+│   ├── message_log.py           # 消息发送记录
+│   └── cli.py                   # ontology-outreach CLI
+│
+├── llm/                         # LLM 基础设施
+│   ├── schema.py                # LlmProfile、ProxyConfig
+│   ├── store.py                 # Profile 持久化
+│   ├── factory.py               # ChatModel 工厂、连接测试
+│   └── proxy.py                 # Admin → 模型网关 HTTP 代理
+│
+├── apps/                        # 应用层示例
+│   ├── prototype.py             # PrototypeApp — 样机管理
+│   ├── prototype_tools.py       # 样机专用 Agent Tools
+│   └── prototype_analytics.py   # 看板统计
+│
+├── chat/                        # Chainlit 辅助
+│   ├── identity.py              # 用户 ID / 角色解析
+│   └── chainlit_helpers.py      # 审批按钮、消息格式化
+│
+└── admin/                       # 运营后台（FastAPI + SPA）
+    ├── __main__.py              # ontology-admin CLI 入口
+    ├── server.py                # FastAPI 路由（/api/* + 静态 SPA）
+    ├── manager.py               # Ontology YAML 文件管理
+    ├── excel_import.py          # Excel 批量导入本体
+    ├── connectors_api.py        # Connector / 凭据 API
+    ├── browser_api.py           # Browser Extension Run API 模型
+    ├── mapping_api.py           # 映射工作台 API
+    ├── llm_api.py               # LLM / 代理 API
+    └── static/                  # 前端 SPA 资源
+        ├── app.html / app.js    # Shell 入口
+        ├── shell.js             # 路由、侧边栏菜单
+        ├── style.css
+        ├── partials/            # 各页面 HTML 片段
+        └── modules/             # 各模块 JS（ontologies / connectors / …）
 ```
 
-## 测试
+### Admin SPA 模块与路由
+
+| 菜单分组 | 路由 | 前端模块 | 后端 API 域 |
+|----------|------|----------|-------------|
+| 本体建模 | `/admin/ontologies` | `ontologies.js` | `/api/ontologies` |
+| 本体建模 | `/admin/ontologies/{name}/edit` | `editor.js` | `/api/ontologies/{name}` |
+| 本体建模 | `/admin/ontologies/{name}/graph` | `graph.js` | `/api/ontologies/{name}` |
+| 数据集成 | `/admin/integration/connectors` | `connectors.js` | `/api/connectors`、`/api/browser/runs` |
+| 数据集成 | `/admin/integration/credentials` | `connectors.js` | `/api/credentials` |
+| 数据集成 | `/admin/integration/mappings/*` | `mappings.js` | `/api/mappings` |
+| 运营中心 | `/admin/operations/*` | `operations.js` | `/api/audit-logs`、`/api/approvals`、… |
+| 应用示例 | `/admin/apps/prototype/dashboard` | `prototype_app.js` | `/api/prototype/dashboard` |
+| 系统设置 | `/admin/settings/llm` | `llm.js` | `/api/llm/profiles` |
+
+### CLI 入口
+
+| 命令 | 模块 | 用途 |
+|------|------|------|
+| `ontology-platform` | `cli.py` | 命令行对话 / Demo |
+| `ontology-admin` | `admin/__main__.py` | 启动运营后台 Web 服务 |
+| `ontology-connector` | `connector/cli.py` | 采集、ingest、sync、daemon |
+| `ontology-outreach` | `integrations/cli.py` | 跟催任务 run / daemon / logs |
+| `chainlit run chainlit_app.py` | 根目录 | 启动对话界面 |
+| `langgraph dev` | `langgraph_studio.py` | LangGraph Studio 调试 |
+
+### 数据文件（运行时）
+
+启动时通过 CLI 参数或环境变量指定，**Chainlit 与 Admin 应共用同一路径**：
+
+| 文件 | 参数 / 变量 | 内容 |
+|------|-------------|------|
+| `demo.db` | `--store-path` / `ONTOLOGY_STORE_PATH` | Ontology 实例、审计、审批 checkpoint |
+| `connector.db` | `--connector-db` | Connector 运行记录、暂存记录、browser_runs |
+| `mapping.db` | `--mapping-db` | 字段映射 Profile |
+| `{name}.yaml` | `--dir` | 本体定义文件（默认 `examples/`） |
+| `examples/connectors/*.yaml` | `--connectors-dir` | 连接器定义 |
+
+### 测试
+
+```
+tests/
+├── test_platform.py / test_prototype.py   # 平台与应用
+├── test_connector*.py / test_capture_*.py # 数据连接与采集
+├── test_browser_extension.py              # Browser Extension 协议
+├── test_mapping.py                        # 映射工作台
+├── test_governance.py / test_admin.py   # 治理与 Admin API
+├── test_llm_*.py                          # LLM 配置
+└── test_integrations.py / test_chainlit*.py
+```
 
 ```bash
-pytest   # 含 connector 测试
+pytest   # 全量测试（147+ 用例）
 ```
 
 ## 版本说明
@@ -448,7 +665,8 @@ pytest   # 含 connector 测试
 ## 扩展路线
 
 - [x] Outbound Channels（IM / 邮件 / 跟催）
-- [x] Data Connector（Computer Use → SQL → Ontology）
+- [x] Data Connector（Computer Use / File → SQL → Ontology）
+- [x] Browser Extension Action Adapter（Chrome 扩展 + browser_script 协议）
 - [x] 审计日志 / 消息 / 跟催 admin 运营中心
 - [x] outreach 守护进程 (`ontology-outreach daemon`)
 - [x] Chainlit 用户身份与 RBAC 对接（含角色映射）
