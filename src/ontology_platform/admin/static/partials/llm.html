@@ -31,9 +31,12 @@
           </label>
           <label>Model<input id="p-model" placeholder="qwen2.5-72b"></label>
           <label>Base URL<input id="p-base-url" placeholder="http://llm.internal.corp/v1"></label>
-          <label>API Key 凭据
-            <select id="p-api-key-ref"><option value="">（无 / 内网免鉴权）</option></select>
+          <label>API Key<input id="p-api-key" type="password" autocomplete="new-password"
+            placeholder="New API Token（sk-...）"></label>
+          <label>或选择已有凭据
+            <select id="p-api-key-ref"><option value="">（自动创建凭据 / 使用上方 API Key）</option></select>
           </label>
+          <p class="page-subtitle full" style="margin:0">API Key 加密存入凭据库，不会明文回显。编辑时留空表示不修改已有 Key。</p>
           <label>Planner 模式
             <select id="p-planner-mode"><option value="auto">auto</option><option value="llm">llm</option><option value="rule">rule</option></select>
           </label>

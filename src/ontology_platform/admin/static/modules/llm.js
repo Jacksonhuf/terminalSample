@@ -34,7 +34,7 @@ export async function mount(container, params, ctx) {
     async function loadCredentialOptions() {
       const select = document.getElementById('p-api-key-ref');
       const current = select.value;
-      select.innerHTML = '<option value="">（无 / 内网免鉴权）</option>';
+      select.innerHTML = '<option value="">（自动创建凭据 / 使用上方 API Key）</option>';
       try {
         const data = await api('/credentials');
         if (!data.configured) return;
@@ -96,6 +96,7 @@ export async function mount(container, params, ctx) {
       document.getElementById('p-name').value = '';
       document.getElementById('p-model').value = '';
       document.getElementById('p-base-url').value = '';
+      document.getElementById('p-api-key').value = '';
       document.getElementById('p-api-key-ref').value = '';
       document.getElementById('p-planner-mode').value = 'auto';
       document.getElementById('p-proxy-mode').value = 'bypass';
@@ -120,6 +121,8 @@ export async function mount(container, params, ctx) {
       document.getElementById('p-provider').value = p.provider;
       document.getElementById('p-model').value = p.model;
       document.getElementById('p-base-url').value = p.base_url;
+      document.getElementById('p-api-key').value = '';
+      document.getElementById('p-api-key').placeholder = p.api_key_set ? '已配置（留空不修改）' : 'New API Token（sk-...）';
       document.getElementById('p-api-key-ref').value = p.api_key_ref || '';
       document.getElementById('p-planner-mode').value = p.planner_mode;
       document.getElementById('p-proxy-mode').value = p.proxy_mode;
@@ -137,6 +140,7 @@ export async function mount(container, params, ctx) {
         provider: document.getElementById('p-provider').value,
         model: document.getElementById('p-model').value.trim(),
         base_url: document.getElementById('p-base-url').value.trim(),
+        api_key: document.getElementById('p-api-key').value,
         api_key_ref: document.getElementById('p-api-key-ref').value,
         planner_mode: document.getElementById('p-planner-mode').value,
         proxy_mode: document.getElementById('p-proxy-mode').value,

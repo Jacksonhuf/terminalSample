@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Body, Request, UploadFile, File
@@ -15,7 +16,12 @@ from ontology_platform.admin.excel_import import (
     build_template_bytes,
     import_ontology_from_excel,
 )
-from ontology_platform.admin.llm_api import SaveLlmProfileRequest, SaveProxyConfigRequest, proxy_to_dict
+from ontology_platform.admin.llm_api import (
+    SaveLlmProfileRequest,
+    SaveProxyConfigRequest,
+    proxy_to_dict,
+    resolve_llm_api_key_ref,
+)
 from ontology_platform.admin.connectors_api import (
     CreateCredentialRequest,
     RotatePasswordRequest,
@@ -747,14 +753,22 @@ def create_app(
     def create_llm_profile(req: SaveLlmProfileRequest = Body()):
         if llm_store is None:
             raise HTTPException(400, "未配置 LLM 存储路径")
+        profile_id = req.id or f"llm-{uuid.uuid4().hex[:8]}"
         try:
+            api_key_ref = resolve_llm_api_key_ref(
+                profile_id=profile_id,
+                profile_name=req.name,
+                api_key_ref=req.api_key_ref,
+                api_key=req.api_key,
+                credential_store=credential_store,
+            )
             profile = llm_store.create_profile(
                 name=req.name,
-                profile_id=req.id or None,
+                profile_id=profile_id,
                 provider=req.provider,
                 base_url=req.base_url,
                 model=req.model,
-                api_key_ref=req.api_key_ref,
+                api_key_ref=api_key_ref,
                 planner_mode=req.planner_mode,
                 proxy_mode=req.proxy_mode,
                 temperature=req.temperature,
@@ -764,7 +778,8 @@ def create_app(
                 is_default=req.is_default,
             )
         except ValueError as exc:
-            raise HTTPException(409, str(exc))
+            status = 409 if "already exists" in str(exc).lower() else 400
+            raise HTTPException(status, str(exc))
         runtime_platform["instance"] = None
         if audit_logger:
             audit_logger.log(
@@ -783,23 +798,34 @@ def create_app(
     def update_llm_profile(profile_id: str, req: SaveLlmProfileRequest = Body()):
         if llm_store is None:
             raise HTTPException(400, "未配置 LLM 存储路径")
-        profile = llm_store.update_profile(
-            profile_id,
-            name=req.name,
-            provider=req.provider,
-            base_url=req.base_url,
-            model=req.model,
-            api_key_ref=req.api_key_ref,
-            planner_mode=req.planner_mode,
-            proxy_mode=req.proxy_mode,
-            temperature=req.temperature,
-            timeout_sec=req.timeout_sec,
-            max_tokens=req.max_tokens,
-            enabled=req.enabled,
-            is_default=req.is_default,
-        )
-        if profile is None:
+        existing = llm_store.get_profile(profile_id)
+        if existing is None:
             raise HTTPException(404, f"LLM profile not found: {profile_id}")
+        try:
+            api_key_ref = resolve_llm_api_key_ref(
+                profile_id=profile_id,
+                profile_name=req.name,
+                api_key_ref=req.api_key_ref or existing.api_key_ref,
+                api_key=req.api_key,
+                credential_store=credential_store,
+            )
+            profile = llm_store.update_profile(
+                profile_id,
+                name=req.name,
+                provider=req.provider,
+                base_url=req.base_url,
+                model=req.model,
+                api_key_ref=api_key_ref,
+                planner_mode=req.planner_mode,
+                proxy_mode=req.proxy_mode,
+                temperature=req.temperature,
+                timeout_sec=req.timeout_sec,
+                max_tokens=req.max_tokens,
+                enabled=req.enabled,
+                is_default=req.is_default,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         runtime_platform["instance"] = None
         return profile.model_dump()
 
