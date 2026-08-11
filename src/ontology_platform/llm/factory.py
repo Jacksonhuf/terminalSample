@@ -86,6 +86,31 @@ def apply_planner_mode_from_profile(config: AgentConfig, profile: LlmProfile | N
         config.planner_mode = profile.planner_mode
 
 
+def diagnose_llm_profile(
+    profile: LlmProfile,
+    proxy_cfg: ProxyConfig,
+    credential_store: CredentialStore | None = None,
+) -> dict:
+    """Return config summary without any outbound network call."""
+    api_key_ref = profile.api_key_ref or ""
+    api_key_set = False
+    if api_key_ref and credential_store is not None:
+        api_key_set = credential_store.get_secret(api_key_ref) is not None
+    return {
+        "profile_id": profile.id,
+        "base_url": profile.base_url,
+        "model": profile.model,
+        "timeout_sec": profile.timeout_sec,
+        "proxy_mode": profile.proxy_mode,
+        "proxy_will_be_used": resolve_proxy_used(profile, proxy_cfg),
+        "api_key_ref": api_key_ref,
+        "api_key_set": api_key_set,
+        "hint": (
+            "测试由 Admin 服务端发起访问 Base URL，请确认运行 ontology-admin 的机器能访问该内网地址"
+        ),
+    }
+
+
 def preflight_llm_connection(
     profile: LlmProfile,
     proxy_cfg: ProxyConfig,
@@ -113,11 +138,11 @@ def preflight_llm_connection(
     url = profile.base_url.rstrip("/") + "/models"
     client_kwargs = build_httpx_client_kwargs(profile, proxy_cfg)
     headers = {"Authorization": f"Bearer {api_key}"}
+    timeout_sec = max(int(profile.timeout_sec or 60), 5)
     try:
-        with httpx.Client(**client_kwargs) as client:
-            start = time.perf_counter()
-            resp = client.get(url, headers=headers)
-            latency_ms = int((time.perf_counter() - start) * 1000)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_preflight_get, url, headers, client_kwargs)
+            resp, latency_ms = future.result(timeout=timeout_sec + 5)
         if resp.status_code == 200:
             return LlmTestResult(
                 success=True,
@@ -134,6 +159,13 @@ def preflight_llm_connection(
             proxy_used=proxy_used,
             proxy_mode=profile.proxy_mode,
         )
+    except concurrent.futures.TimeoutError:
+        return LlmTestResult(
+            success=False,
+            message=f"网关连接超时（>{timeout_sec} 秒）: {url}",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
     except Exception as exc:
         return LlmTestResult(
             success=False,
@@ -141,6 +173,16 @@ def preflight_llm_connection(
             proxy_used=proxy_used,
             proxy_mode=profile.proxy_mode,
         )
+
+
+def _preflight_get(url: str, headers: dict, client_kwargs: dict):
+    import httpx
+
+    start = time.perf_counter()
+    with httpx.Client(**client_kwargs) as client:
+        resp = client.get(url, headers=headers)
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return resp, latency_ms
 
 
 def test_llm_connection(
