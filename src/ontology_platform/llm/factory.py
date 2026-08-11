@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import time
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,12 @@ def _resolve_api_key(profile: LlmProfile, credential_store: CredentialStore | No
     if secret is None:
         return "not-needed"
     return secret.password or secret.username or "not-needed"
+
+
+def _invoke_ping(model: BaseChatModel) -> str:
+    response = model.invoke([HumanMessage(content="ping")])
+    content = response.content if isinstance(response.content, str) else str(response.content)
+    return content
 
 
 def build_chat_model(
@@ -84,24 +91,49 @@ def test_llm_connection(
     proxy_cfg: ProxyConfig,
     credential_store: CredentialStore | None = None,
 ) -> LlmTestResult:
+    proxy_used = resolve_proxy_used(profile, proxy_cfg)
+    api_key_ref = profile.api_key_ref or ""
+    if api_key_ref and credential_store is None:
+        return LlmTestResult(
+            success=False,
+            message="未配置凭据存储（请使用 --store-path 启动 Admin）",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
+    if api_key_ref and credential_store is not None and credential_store.get_secret(api_key_ref) is None:
+        return LlmTestResult(
+            success=False,
+            message=f"API Key 凭据不存在: {api_key_ref}",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
+    timeout_sec = max(int(profile.timeout_sec or 60), 5)
     try:
         model = build_chat_model(profile, proxy_cfg, credential_store)
         start = time.perf_counter()
-        response = model.invoke([HumanMessage(content="ping")])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_invoke_ping, model)
+            content = future.result(timeout=timeout_sec + 5)
         latency_ms = int((time.perf_counter() - start) * 1000)
-        content = response.content if isinstance(response.content, str) else str(response.content)
         return LlmTestResult(
             success=True,
             message="连接成功",
             latency_ms=latency_ms,
-            proxy_used=resolve_proxy_used(profile, proxy_cfg),
+            proxy_used=proxy_used,
             proxy_mode=profile.proxy_mode,
             model_response=content[:200],
+        )
+    except concurrent.futures.TimeoutError:
+        return LlmTestResult(
+            success=False,
+            message=f"连接超时（>{timeout_sec} 秒），请检查 Base URL、代理设置与内网连通性",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
         )
     except Exception as exc:
         return LlmTestResult(
             success=False,
             message=str(exc),
-            proxy_used=resolve_proxy_used(profile, proxy_cfg),
+            proxy_used=proxy_used,
             proxy_mode=profile.proxy_mode,
         )

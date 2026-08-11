@@ -176,6 +176,43 @@ export async function mount(container, params, ctx) {
       } catch (e) { toast(e.message, 'error'); }
     }
 
+    function setTestLoading(loading) {
+      const btn = document.getElementById('p-test-btn');
+      if (btn) {
+        btn.disabled = loading;
+        btn.textContent = loading ? '测试中...' : '测试连接';
+      }
+      document.querySelectorAll('button[onclick^="testProfileById"]').forEach((el) => {
+        el.disabled = loading;
+        if (!loading) el.textContent = '测试';
+        else if (el.textContent === '测试') el.textContent = '测试中...';
+      });
+    }
+
+    function showTestResult(resultOrMessage, success) {
+      const panel = document.getElementById('llm-test-result');
+      const out = document.getElementById('llm-test-output');
+      if (!panel || !out) return;
+      panel.style.display = 'block';
+      if (typeof resultOrMessage === 'string') {
+        out.textContent = resultOrMessage;
+      } else {
+        out.textContent = JSON.stringify(resultOrMessage, null, 2);
+      }
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const legacy = document.getElementById('test-output');
+      if (legacy) {
+        legacy.style.display = 'block';
+        legacy.textContent = out.textContent;
+      }
+      if (typeof success === 'boolean') {
+        toast(
+          typeof resultOrMessage === 'string' ? resultOrMessage : (resultOrMessage.message || '测试完成'),
+          success ? 'success' : 'error',
+        );
+      }
+    }
+
     async function testProfile() {
       const id = editingProfileId || document.getElementById('p-id').value.trim();
       if (!id) { toast('请先保存模型', 'error'); return; }
@@ -183,13 +220,23 @@ export async function mount(container, params, ctx) {
     }
 
     async function testProfileById(id) {
+      const timeoutSec = parseInt(document.getElementById('p-timeout')?.value || '60', 10) || 60;
+      setTestLoading(true);
+      showTestResult(`正在连接模型（最长等待 ${timeoutSec + 10} 秒）...`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), (timeoutSec + 15) * 1000);
       try {
-        const result = await api(`/llm/profiles/${id}/test`, { method: 'POST' });
-        const out = document.getElementById('test-output');
-        out.style.display = 'block';
-        out.textContent = JSON.stringify(result, null, 2);
-        toast(result.success ? '连接成功' : result.message, result.success ? 'success' : 'error');
-      } catch (e) { toast(e.message, 'error'); }
+        const result = await api(`/llm/profiles/${id}/test`, { method: 'POST', signal: controller.signal });
+        showTestResult(result, result.success);
+      } catch (e) {
+        const msg = e.name === 'AbortError'
+          ? `测试超时（>${timeoutSec} 秒），请检查 Base URL 是否可达、代理模式是否为「不走代理」`
+          : e.message;
+        showTestResult({ success: false, message: msg }, false);
+      } finally {
+        clearTimeout(timer);
+        setTestLoading(false);
+      }
     }
 
     async function loadProxy() {

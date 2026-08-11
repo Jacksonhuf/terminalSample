@@ -16,6 +16,10 @@
         <button class="btn btn-primary btn-sm" onclick="showProfileForm()">+ 新建模型</button>
         <button class="btn btn-secondary btn-sm" onclick="loadProfiles()">刷新</button>
       </div>
+      <div id="llm-test-result" class="card" style="display:none; margin-bottom:16px">
+        <h3 class="section-title">连接测试结果</h3>
+        <pre id="llm-test-output" class="code-block" style="margin:0"></pre>
+      </div>
       <div class="card" id="profile-form" style="display:none; margin-bottom:16px">
         <h3 class="section-title" id="profile-form-title">编辑模型</h3>
         <div class="form-grid">
