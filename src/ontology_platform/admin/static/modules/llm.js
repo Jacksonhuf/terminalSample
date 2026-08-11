@@ -75,9 +75,9 @@ export async function mount(container, params, ctx) {
                 <td>${escHtml(p.proxy_mode)}</td>
                 <td>${p.is_default ? '✓' : ''}</td>
                 <td>
-                  <button class="btn btn-secondary btn-sm" onclick="editProfile('${escHtml(p.id)}')">编辑</button>
-                  <button class="btn btn-secondary btn-sm" onclick="testProfileById('${escHtml(p.id)}')">测试</button>
-                  <button class="btn btn-secondary btn-sm" onclick="deleteProfile('${escHtml(p.id)}')">删除</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="edit" data-id="${escAttr(p.id)}">编辑</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="test" data-id="${escAttr(p.id)}">测试</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="delete" data-id="${escAttr(p.id)}">删除</button>
                 </td>
               </tr>`).join('')}
             </tbody>
@@ -85,7 +85,23 @@ export async function mount(container, params, ctx) {
       } catch (e) {
         document.getElementById('profiles-table').innerHTML = `<div class="empty-state card">${escHtml(e.message)}</div>`;
       }
+      bindProfileTableActions();
       loadStatus();
+    }
+
+    function bindProfileTableActions() {
+      const table = document.getElementById('profiles-table');
+      if (!table || table.dataset.bound === '1') return;
+      table.dataset.bound = '1';
+      table.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        if (action === 'edit') editProfile(id);
+        if (action === 'test') testProfileById(id);
+        if (action === 'delete') deleteProfile(id);
+      });
     }
 
     function showProfileForm() {
@@ -222,7 +238,21 @@ export async function mount(container, params, ctx) {
     async function testProfileById(id) {
       const timeoutSec = parseInt(document.getElementById('p-timeout')?.value || '60', 10) || 60;
       setTestLoading(true);
-      showTestResult(`正在连接模型（最长等待 ${timeoutSec + 10} 秒）...`);
+      showTestResult('步骤 1/2：检查网关连通性（/v1/models）...');
+      try {
+        const preflight = await api(`/llm/profiles/${id}/preflight`);
+        if (!preflight.success) {
+          showTestResult(preflight, false);
+          setTestLoading(false);
+          return;
+        }
+        showTestResult(`网关可达（${preflight.latency_ms}ms），步骤 2/2：调用模型 chat...`);
+      } catch (e) {
+        showTestResult({ success: false, message: `预检失败: ${e.message}` }, false);
+        setTestLoading(false);
+        return;
+      }
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), (timeoutSec + 15) * 1000);
       try {
@@ -230,7 +260,7 @@ export async function mount(container, params, ctx) {
         showTestResult(result, result.success);
       } catch (e) {
         const msg = e.name === 'AbortError'
-          ? `测试超时（>${timeoutSec} 秒），请检查 Base URL 是否可达、代理模式是否为「不走代理」`
+          ? `模型调用超时（>${timeoutSec} 秒），网关可达但 chat 接口无响应，请检查 Model 名称`
           : e.message;
         showTestResult({ success: false, message: msg }, false);
       } finally {

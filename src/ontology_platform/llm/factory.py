@@ -86,6 +86,63 @@ def apply_planner_mode_from_profile(config: AgentConfig, profile: LlmProfile | N
         config.planner_mode = profile.planner_mode
 
 
+def preflight_llm_connection(
+    profile: LlmProfile,
+    proxy_cfg: ProxyConfig,
+    credential_store: CredentialStore | None = None,
+) -> LlmTestResult:
+    """Quick reachability check to gateway /models without chat invoke."""
+    import httpx
+
+    proxy_used = resolve_proxy_used(profile, proxy_cfg)
+    api_key = _resolve_api_key(profile, credential_store)
+    if not profile.base_url:
+        return LlmTestResult(
+            success=False,
+            message="未配置 Base URL",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
+    if api_key == "not-needed" and profile.api_key_ref:
+        return LlmTestResult(
+            success=False,
+            message=f"API Key 凭据无效或未找到: {profile.api_key_ref}",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
+    url = profile.base_url.rstrip("/") + "/models"
+    client_kwargs = build_httpx_client_kwargs(profile, proxy_cfg)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            start = time.perf_counter()
+            resp = client.get(url, headers=headers)
+            latency_ms = int((time.perf_counter() - start) * 1000)
+        if resp.status_code == 200:
+            return LlmTestResult(
+                success=True,
+                message=f"网关可达 ({resp.status_code})",
+                latency_ms=latency_ms,
+                proxy_used=proxy_used,
+                proxy_mode=profile.proxy_mode,
+                model_response=resp.text[:200],
+            )
+        return LlmTestResult(
+            success=False,
+            message=f"网关返回 HTTP {resp.status_code}: {resp.text[:300]}",
+            latency_ms=latency_ms,
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
+    except Exception as exc:
+        return LlmTestResult(
+            success=False,
+            message=f"无法连接网关 {url}: {exc}",
+            proxy_used=proxy_used,
+            proxy_mode=profile.proxy_mode,
+        )
+
+
 def test_llm_connection(
     profile: LlmProfile,
     proxy_cfg: ProxyConfig,

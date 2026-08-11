@@ -838,6 +838,18 @@ def create_app(
         runtime_platform["instance"] = None
         return {"message": "deleted", "id": profile_id}
 
+    @app.get("/api/llm/profiles/{profile_id}/preflight")
+    def preflight_llm_profile(profile_id: str):
+        if llm_store is None:
+            raise HTTPException(400, "未配置 LLM 存储路径")
+        profile = llm_store.get_profile(profile_id)
+        if profile is None:
+            raise HTTPException(404, f"LLM profile not found: {profile_id}")
+        from ontology_platform.llm.factory import preflight_llm_connection
+
+        result = preflight_llm_connection(profile, llm_store.get_proxy_config(), credential_store)
+        return result.model_dump()
+
     @app.post("/api/llm/profiles/{profile_id}/test")
     def test_llm_profile(profile_id: str):
         if llm_store is None:
