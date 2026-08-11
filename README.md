@@ -390,33 +390,43 @@ Admin **数据连接** 页面（`/admin/integration/connectors`）：
 
 #### Chrome Browser Extension 采集（`browser_extension`）
 
-适用于只有 Web 界面、且依赖用户 SSO 会话的系统。扩展是**通用协议执行器**，业务步骤在 Connector YAML 的 `browser_script` / `browser_actions` 中配置。
+适用于只有 Web 界面、且依赖用户 SSO 会话的系统。扩展是**通用协议执行器**，可被 Ontology Connector、OpenClaw、Hermes SKILL 或任意 Agent 通过 **Browser Bridge API** 驱动。
 
 ```
-Admin / API  →  BrowserActionManager  →  SQLite (browser_runs)
-                      ↑
-            Chrome Extension（轮询 + DOM 执行）
-                      ↓
-            CaptureBatch → ingest → Mapping → Ontology
+Agent / Connector  →  BrowserBridge (/v1/browser)  →  SQLite (browser_sessions)
+                              ↑
+                    Chrome Extension（轮询 + DOM 执行）
+                              ↓
+              Ontology ingest（可选）| webhook | JSON data
 ```
 
 **安装扩展**：
 
 1. Chrome 打开 `chrome://extensions` → 开发者模式 → 「加载已解压的扩展程序」→ 选择仓库 `extension/` 目录
-2. 扩展选项中设置平台 Admin 地址（默认 `http://127.0.0.1:8765`）
+2. 扩展选项中设置 Bridge 地址（默认 `http://127.0.0.1:8080`），API 版本选 **v1**
 
-**发起采集**：
+**Ontology Connector 采集**：
 
 ```bash
-# API 创建扩展任务
 curl -X POST http://localhost:8080/api/connectors/browser_demo/browser-run \
   -H 'Content-Type: application/json' \
   -d '{"auto_sync": false}'
 ```
 
-或在 Admin 数据连接页对 `browser_extension` 连接器点击 **Extension 采集**。扩展轮询 `GET /api/browser/runs/pending` 自动拾取并执行。
+**任意 Agent 驱动（Python SDK）**：
 
-Connector 示例见 `examples/connectors/browser_demo.yaml`，扩展说明见 [extension/README.md](extension/README.md)。
+```python
+from ontology_platform.browser_adapter import BrowserAdapterClient
+
+client = BrowserAdapterClient("http://127.0.0.1:8080")
+created = client.create_session(mode="interactive", start_url="https://example.com")
+sid = created["session"]["id"]
+client.snapshot(sid)  # 需扩展正在轮询
+```
+
+**通用 REST API**：`POST /v1/browser/sessions`、`POST /v1/browser/sessions/{id}/commands`（interactive）、`GET /v1/browser/sessions/pending`（扩展轮询）。详见 [extension/README.md](extension/README.md)。
+
+Legacy Connector API（`/api/browser/runs/*`）仍可用；模块位于 `src/ontology_platform/browser_adapter/`。
 
 #### 手动分步流程（兼容旧方式）
 
@@ -548,11 +558,13 @@ src/ontology_platform/
 │   │   ├── runner.py            # 采集编排入口
 │   │   ├── llm_agent.py         # LLM 浏览器 Agent
 │   │   └── browser.py           # Playwright 封装
-│   └── browser/                 # Chrome Extension 协议
-│       ├── schema.py            # BrowserCommand / PageState 协议
-│       ├── store.py             # browser_runs 任务队列
-│       ├── step_engine.py       # scripted / agent_loop 步骤解析
-│       └── manager.py           # BrowserActionManager
+│   └── browser/                 # Ontology Connector 集成层
+│       └── manager.py           # 包装 BrowserBridge + ingest
+├── browser_adapter/             # 通用 Browser Bridge（Agent 可调用）
+│   ├── bridge.py                # Session 编排
+│   ├── store.py                 # browser_sessions
+│   ├── api.py                   # /v1/browser REST
+│   └── sdk.py                   # BrowserAdapterClient
 │
 ├── mapping/                     # 数据层 — 映射工作台
 │   ├── schema.py                # MappingProfile、FieldRule
