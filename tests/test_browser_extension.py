@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ontology_platform.connector.browser.manager import BrowserActionManager
+from ontology_platform.connector.browser.manager import BrowserActionManager, build_browser_manager
 from ontology_platform.connector.browser.schema import BrowserStepRequest, CreateBrowserRunRequest, PageState
-from ontology_platform.connector.browser.store import BrowserRunStore
 from ontology_platform.connector.manager import ConnectorManager
 from ontology_platform.connector.store import ConnectorStore
 
@@ -22,18 +21,13 @@ def connector_store(tmp_path: Path) -> ConnectorStore:
 
 
 @pytest.fixture
-def browser_store(tmp_path: Path) -> BrowserRunStore:
-    return BrowserRunStore(tmp_path / "connector.db")
-
-
-@pytest.fixture
 def manager(connector_store: ConnectorStore) -> ConnectorManager:
     return ConnectorManager(CONNECTOR_DIR, connector_store, ontology_service=None)
 
 
 @pytest.fixture
-def browser_mgr(manager: ConnectorManager, browser_store: BrowserRunStore) -> BrowserActionManager:
-    return BrowserActionManager(manager, browser_store)
+def browser_mgr(manager: ConnectorManager, tmp_path: Path) -> BrowserActionManager:
+    return build_browser_manager(manager, tmp_path / "connector.db")
 
 
 class TestBrowserDemoConnector:

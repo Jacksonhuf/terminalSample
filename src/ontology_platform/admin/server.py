@@ -121,6 +121,7 @@ def create_app(
         mapping_store=mapping_store,
     )
     from ontology_platform.connector.browser import build_browser_manager
+    from ontology_platform.browser_adapter.api import build_browser_router
 
     _connector_db = Path(connector_db_path) if connector_db_path else connectors_path.parent / "connector.db"
     browser_mgr = build_browser_manager(connector_mgr, _connector_db)
@@ -206,6 +207,8 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.include_router(build_browser_router(browser_mgr.bridge_instance))
 
     # --- API ---
 

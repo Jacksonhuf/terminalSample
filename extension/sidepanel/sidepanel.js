@@ -1,6 +1,7 @@
 async function loadConfig() {
-  const data = await chrome.storage.sync.get({ platformBaseUrl: "http://127.0.0.1:8765" });
-  document.getElementById("platform-url").textContent = data.platformBaseUrl;
+  const data = await chrome.storage.sync.get({ bridgeUrl: "", platformBaseUrl: "http://127.0.0.1:8080", apiVersion: "v1" });
+  const url = data.bridgeUrl || data.platformBaseUrl;
+  document.getElementById("platform-url").textContent = `${url} (${data.apiVersion || "v1"})`;
 }
 
 async function renderStatus() {
