@@ -428,6 +428,75 @@ client.snapshot(sid)  # 需扩展正在轮询
 
 Legacy Connector API（`/api/browser/runs/*`）仍可用；模块位于 `src/ontology_platform/browser_adapter/`。
 
+#### Browser Action Adapter（通用浏览器执行端）
+
+Chrome 扩展 + Browser Bridge 组成**与 Ontology 解耦**的浏览器执行层，任意智能体均可调用。
+
+| 组件 | 路径 | 说明 |
+|------|------|------|
+| Chrome 扩展 | `extension/` | DOM 执行器（goto / click / fill / snapshot / extract …） |
+| Browser Bridge | `src/ontology_platform/browser_adapter/` | Session 队列、step 协议、REST API |
+| Python SDK | `browser_adapter.sdk.BrowserAdapterClient` | Agent / 脚本调用入口 |
+| Ontology 集成 | `connector/browser/manager.py` | Connector 采集完成后 ingest（可选） |
+| Agent 示例 | `examples/agents/browser_agent_demo.py` | interactive 模式 demo |
+
+**Session 模式**
+
+| mode | 驱动方 | 说明 |
+|------|--------|------|
+| `scripted` | YAML/JSON 脚本 | 扩展自动逐步执行，适合固定采集流程 |
+| `interactive` | Agent 逐步发命令 | 通过 `/commands` long poll，适合 OpenClaw / LLM Agent |
+| `async` | Agent 按需发命令 | 创建 session 后等待 Agent 下发命令 |
+
+**v1 REST API**（随 `ontology-admin` 启动，默认 `http://127.0.0.1:8080`）
+
+| 方法 | 路径 | 调用方 |
+|------|------|--------|
+| `POST` | `/v1/browser/sessions` | Agent — 创建 session |
+| `GET` | `/v1/browser/sessions/{id}` | Agent — 查询状态 |
+| `DELETE` | `/v1/browser/sessions/{id}` | Agent — 取消 |
+| `POST` | `/v1/browser/sessions/{id}/commands` | Agent — interactive 下发命令（long poll 等结果） |
+| `GET` | `/v1/browser/sessions/{id}/steps/wait` | Agent — 等待扩展 step 结果 |
+| `GET` | `/v1/browser/sessions/pending` | 扩展 — 轮询待执行 session |
+| `POST` | `/v1/browser/sessions/{id}/steps` | 扩展 — step 循环（上报结果 + 取下一条命令） |
+| `POST` | `/v1/browser/sessions/{id}/heartbeat` | 扩展 — 心跳 |
+
+**快速验证**
+
+```bash
+# 1. 启动 Admin（Bridge 内置其中）
+ontology-admin --port 8080 --connector-db ./data/connector.db
+
+# 2. 创建 scripted session（扩展需已加载并在轮询）
+curl -X POST http://localhost:8080/v1/browser/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mode": "scripted",
+    "start_url": "https://example.com",
+    "script": [
+      {"action": "goto", "url": "https://example.com"},
+      {"action": "snapshot"},
+      {"action": "finish"}
+    ]
+  }'
+
+# 3. Python SDK 交互式 demo
+python3 examples/agents/browser_agent_demo.py http://127.0.0.1:8080
+```
+
+**实现状态**
+
+| 能力 | 状态 |
+|------|------|
+| Chrome 扩展 + v1/legacy API | ✅ |
+| scripted / interactive / async session | ✅ |
+| Python SDK（`BrowserAdapterClient`） | ✅ |
+| Ontology Connector ingest 集成 | ✅ |
+| MCP Server / Hermes SKILL 模板 | 待后续（可基于 SDK 封装） |
+| API Key 鉴权 / WebSocket | 待后续 |
+
+更多细节见 [extension/README.md](extension/README.md)。
+
 #### 手动分步流程（兼容旧方式）
 
 ```bash
@@ -491,12 +560,13 @@ ontology-agent-platform/
 │   ├── demo_ontology.yaml         # 通用 Demo 本体
 │   ├── connectors/              # Connector YAML（erp / file / browser_demo）
 │   ├── captures/                # Computer Use 采集样例 JSON
+│   ├── agents/                  # Agent 驱动 Browser Bridge 示例
 │   └── data/                    # Seed 数据
 │
 ├── src/ontology_platform/       # 平台核心 Python 包
 │   └── …                        # 见下方「源码包分层」
 │
-└── tests/                       # pytest 测试（147+ 用例）
+└── tests/                       # pytest 测试（152+ 用例）
 ```
 
 ### 源码包分层
@@ -558,12 +628,16 @@ src/ontology_platform/
 │   │   ├── runner.py            # 采集编排入口
 │   │   ├── llm_agent.py         # LLM 浏览器 Agent
 │   │   └── browser.py           # Playwright 封装
-│   └── browser/                 # Ontology Connector 集成层
+│   └── browser/                 # Chrome Extension 协议 + Ontology 集成
+│       ├── schema.py            # BrowserCommand / PageState
+│       ├── step_engine.py       # scripted 步骤解析
 │       └── manager.py           # 包装 BrowserBridge + ingest
+│
 ├── browser_adapter/             # 通用 Browser Bridge（Agent 可调用）
-│   ├── bridge.py                # Session 编排
-│   ├── store.py                 # browser_sessions
-│   ├── api.py                   # /v1/browser REST
+│   ├── bridge.py                # Session 编排（scripted / interactive）
+│   ├── store.py                 # browser_sessions（SQLite）
+│   ├── api.py                   # /v1/browser REST 路由
+│   ├── schema.py                # Session / Step 协议模型
 │   └── sdk.py                   # BrowserAdapterClient
 │
 ├── mapping/                     # 数据层 — 映射工作台
@@ -617,7 +691,7 @@ src/ontology_platform/
 | 本体建模 | `/admin/ontologies` | `ontologies.js` | `/api/ontologies` |
 | 本体建模 | `/admin/ontologies/{name}/edit` | `editor.js` | `/api/ontologies/{name}` |
 | 本体建模 | `/admin/ontologies/{name}/graph` | `graph.js` | `/api/ontologies/{name}` |
-| 数据集成 | `/admin/integration/connectors` | `connectors.js` | `/api/connectors`、`/api/browser/runs` |
+| 数据集成 | `/admin/integration/connectors` | `connectors.js` | `/api/connectors`、`/api/browser/runs`、`/v1/browser` |
 | 数据集成 | `/admin/integration/credentials` | `connectors.js` | `/api/credentials` |
 | 数据集成 | `/admin/integration/mappings/*` | `mappings.js` | `/api/mappings` |
 | 运营中心 | `/admin/operations/*` | `operations.js` | `/api/audit-logs`、`/api/approvals`、… |
@@ -653,7 +727,8 @@ src/ontology_platform/
 tests/
 ├── test_platform.py / test_prototype.py   # 平台与应用
 ├── test_connector*.py / test_capture_*.py # 数据连接与采集
-├── test_browser_extension.py              # Browser Extension 协议
+├── test_browser_extension.py              # Browser Extension + Connector 集成
+├── test_browser_adapter.py                # 通用 Browser Bridge / SDK
 ├── test_mapping.py                        # 映射工作台
 ├── test_governance.py / test_admin.py   # 治理与 Admin API
 ├── test_llm_*.py                          # LLM 配置
@@ -679,6 +754,7 @@ pytest   # 全量测试（147+ 用例）
 - [x] Outbound Channels（IM / 邮件 / 跟催）
 - [x] Data Connector（Computer Use / File → SQL → Ontology）
 - [x] Browser Extension Action Adapter（Chrome 扩展 + browser_script 协议）
+- [x] Browser Bridge 通用 API（/v1/browser + Python SDK，Agent 可驱动）
 - [x] 审计日志 / 消息 / 跟催 admin 运营中心
 - [x] outreach 守护进程 (`ontology-outreach daemon`)
 - [x] Chainlit 用户身份与 RBAC 对接（含角色映射）
