@@ -91,6 +91,7 @@ def create_app(
     from ontology_platform.ontology.service import OntologyService
     from ontology_platform.ontology.store.sqlite import SQLiteStore
     from ontology_platform.runtime import build_runtime_platform
+    from ontology_platform.ontology.paths import resolve_primary_ontology_yaml
     from ontology_platform.connector.credential_store import CredentialStore
     from ontology_platform.governance.audit import AuditLogEntry
 
@@ -103,7 +104,7 @@ def create_app(
     integrations_path = integrations_db_path or resolved_store_path
     message_log = MessageLogStore(integrations_path) if integrations_path else None
     outreach_store = OutreachStore(integrations_path) if integrations_path else None
-    yaml_path = Path(ontology_yaml_path) if ontology_yaml_path else base_dir / "prototype_ontology.yaml"
+    yaml_path = resolve_primary_ontology_yaml(base_dir, ontology_yaml_path)
     obj_db_path = Path(ontology_db_path) if ontology_db_path else None
     connectors_path = Path(connectors_dir) if connectors_dir else base_dir / "connectors"
     cred_db = credential_db_path or resolved_store_path
@@ -119,13 +120,13 @@ def create_app(
         credential_store,
         mapping_store=mapping_store,
     )
-    if resolved_store_path and yaml_path.exists():
+    if resolved_store_path and yaml_path is not None and yaml_path.exists():
         try:
             import yaml as _yaml
             from ontology_platform.admin.mapping_api import resolve_ontology_service
 
             with open(yaml_path, encoding="utf-8") as _f:
-                _ont_name = (_yaml.safe_load(_f) or {}).get("name", "prototype")
+                _ont_name = (_yaml.safe_load(_f) or {}).get("name", yaml_path.stem)
             connector_mgr.ontology_service = resolve_ontology_service(
                 manager, _ont_name, resolved_store_path, database_url
             )
@@ -136,7 +137,7 @@ def create_app(
     runtime_platform = {"instance": None}
 
     def _get_runtime_platform():
-        if runtime_platform["instance"] is None and yaml_path.exists() and (resolved_store_path or database_url):
+        if runtime_platform["instance"] is None and yaml_path is not None and yaml_path.exists() and (resolved_store_path or database_url):
             runtime_platform["instance"] = build_runtime_platform(
                 ontology_yaml=yaml_path,
                 store_path=resolved_store_path,
@@ -237,8 +238,8 @@ def create_app(
     def run_outreach_worker():
         if integrations_path is None:
             raise HTTPException(400, "未配置 integrations 数据库路径")
-        if not yaml_path.exists():
-            raise HTTPException(400, f"Ontology YAML 不存在: {yaml_path}")
+        if yaml_path is None or not yaml_path.exists():
+            raise HTTPException(400, "未配置本体 YAML（请使用 --ontology-yaml 或 ONTOLOGY_YAML）")
         registry = OntologyRegistry.from_yaml(yaml_path)
         ontology_name = registry.list_ontologies()[0]
         db = obj_db_path or Path(integrations_path).parent / f"{ontology_name}.db"
@@ -263,7 +264,7 @@ def create_app(
             "audit_path": str(resolved_store_path) if resolved_store_path else "",
             "integrations_path": str(integrations_path) if integrations_path else "",
             "database_url": database_url or "",
-            "ontology_yaml": str(yaml_path),
+            "ontology_yaml": str(yaml_path) if yaml_path else "",
             "ontology_db": str(obj_db_path or ""),
             "mapping_db": str(mapping_db),
         }
@@ -314,40 +315,6 @@ def create_app(
             ]
 
         return overview
-
-    @app.get("/api/prototype/dashboard")
-    def prototype_dashboard():
-        from ontology_platform.apps.prototype_analytics import build_dashboard
-
-        platform = _get_runtime_platform()
-        if platform is None:
-            return {"configured": False, "message": "未配置运行时平台（需要 store-path 或 database-url）"}
-        dashboard = build_dashboard(platform.get_service())
-        return {"configured": True, **dashboard}
-
-    @app.post("/api/prototype/seed")
-    def prototype_seed():
-        from ontology_platform.apps.prototype import PrototypeApp
-
-        if not yaml_path.exists():
-            raise HTTPException(400, f"Ontology YAML 不存在: {yaml_path}")
-        config = AgentConfig(
-            store_path=str(resolved_store_path) if resolved_store_path else None,
-            database_url=database_url,
-            audit_path=str(resolved_store_path) if resolved_store_path else None,
-            integrations_db_path=str(integrations_path) if integrations_path else None,
-            enable_governance=True,
-            enable_approval_flow=True,
-        )
-        app_instance = PrototypeApp.create(ontology_path=yaml_path, config=config)
-        had_data = app_instance.service.get_object("Person", "P-001") is not None
-        app_instance.seed()
-        runtime_platform["instance"] = app_instance.platform
-        return {
-            "seeded": not had_data,
-            "message": "演示数据已存在" if had_data else "已写入演示数据",
-            "dashboard": app_instance.get_dashboard(),
-        }
 
     @app.get("/api/approvals")
     def list_approvals(status: str | None = None, limit: int = 100):

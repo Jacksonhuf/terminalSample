@@ -12,6 +12,7 @@ from ontology_platform.connector.credential_store import CredentialStore
 from ontology_platform.connector.manager import ConnectorManager
 from ontology_platform.connector.schema import CaptureBatch
 from ontology_platform.connector.store import ConnectorStore
+from ontology_platform.ontology.paths import resolve_primary_ontology_yaml
 from ontology_platform.ontology.registry import OntologyRegistry
 from ontology_platform.ontology.service import OntologyService
 from ontology_platform.ontology.store.sqlite import SQLiteStore
@@ -37,6 +38,16 @@ def _build_manager(
     return ConnectorManager(connectors_dir, store, ontology_service, credential_store)
 
 
+def _require_ontology_yaml(path: Path | None) -> Path:
+    if path is None or not path.exists():
+        print(
+            "Error: --ontology or ONTOLOGY_YAML is required for this command",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ontology-connector",
@@ -54,8 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--ontology",
-        default="examples/prototype_ontology.yaml",
-        help="Ontology YAML for sync",
+        default="",
+        help="Ontology YAML for sync (or set ONTOLOGY_YAML)",
     )
     parser.add_argument(
         "--ontology-db",
@@ -99,7 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     connectors_dir = Path(args.connectors_dir)
     db_path = Path(args.db)
-    ontology_yaml = Path(args.ontology) if args.ontology else None
+    ontology_yaml = resolve_primary_ontology_yaml(
+        connectors_dir.parent,
+        args.ontology or None,
+    )
     ontology_db = Path(args.ontology_db) if getattr(args, "ontology_db", None) else None
     credential_db = Path(args.credential_db) if getattr(args, "credential_db", None) else db_path.parent / "credentials.db"
 
@@ -150,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "sync":
+        ontology_yaml = _require_ontology_yaml(ontology_yaml)
         mgr = _build_manager(
             connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
         )
@@ -158,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "ingest-file":
+        ontology_yaml = _require_ontology_yaml(ontology_yaml)
         mgr = _build_manager(
             connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
         )
@@ -176,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
+        ontology_yaml = _require_ontology_yaml(ontology_yaml)
         mgr = _build_manager(
             connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
         )
@@ -192,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "daemon":
         from ontology_platform.connector.worker import run_capture_daemon
 
+        ontology_yaml = _require_ontology_yaml(ontology_yaml)
         mgr = _build_manager(
             connectors_dir, db_path, ontology_yaml, ontology_db, credential_db=credential_db
         )

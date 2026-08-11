@@ -30,12 +30,6 @@ const MENU = [
     ],
   },
   {
-    group: '应用示例',
-    items: [
-      { label: '样机看板', path: '/admin/apps/prototype/dashboard' },
-    ],
-  },
-  {
     group: '系统设置',
     items: [
       { label: 'LLM 配置', path: '/admin/settings/llm' },
@@ -55,7 +49,6 @@ const ROUTES = [
   { pattern: /^\/admin\/integration\/credentials$/, module: 'connectors', title: '凭据库', breadcrumb: ['数据集成', '凭据库'], params: () => ({ tab: 'credentials' }) },
   { pattern: /^\/admin\/integration\/mappings\/(discover|profiles|sync)$/, module: 'mappings', title: '数据映射', breadcrumb: ['数据集成', '数据映射'], params: (m) => ({ tab: m[1] }) },
   { pattern: /^\/admin\/operations\/(overview|audit|approvals|messages|outreach)$/, module: 'operations', title: '运营中心', breadcrumb: ['运营中心'], params: (m) => ({ tab: m[1] }) },
-  { pattern: /^\/admin\/apps\/prototype\/dashboard$/, module: 'prototype_app', title: '样机看板', breadcrumb: ['应用示例', '样机看板'] },
   { pattern: /^\/admin\/settings\/llm$/, module: 'llm', title: 'LLM 配置', breadcrumb: ['系统设置', 'LLM 配置'], params: () => ({ tab: 'profiles' }) },
   { pattern: /^\/admin\/settings\/proxy$/, module: 'llm', title: '网络与代理', breadcrumb: ['系统设置', '网络与代理'], params: () => ({ tab: 'proxy' }) },
 ];
@@ -65,7 +58,7 @@ const LEGACY_REDIRECTS = {
   '/editor': '/admin/ontologies/edit',
   '/visualize': '/admin/ontologies/graph',
   '/operations': '/admin/operations/overview',
-  '/admin/operations/dashboard': '/admin/apps/prototype/dashboard',
+  '/admin/operations/dashboard': '/admin/operations/overview',
   '/connectors': '/admin/integration/connectors',
   '/mappings': '/admin/integration/mappings/discover',
   '/settings/llm': '/admin/settings/llm',

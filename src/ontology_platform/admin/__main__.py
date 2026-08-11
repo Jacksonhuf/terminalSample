@@ -43,7 +43,7 @@ def main() -> None:
         "--ontology-yaml",
         type=str,
         default="",
-        help="Ontology YAML for outreach worker (default: <dir>/prototype_ontology.yaml)",
+        help="Ontology YAML for runtime/outreach (default: resolve from ONTOLOGY_YAML or demo_ontology.yaml)",
     )
     parser.add_argument(
         "--ontology-db",
