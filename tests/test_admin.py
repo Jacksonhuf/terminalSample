@@ -165,7 +165,6 @@ class TestAdminAPI:
         visualize = client.get("/visualize", follow_redirects=False)
         assert visualize.status_code in (200, 302)
         assert client.get("/admin/operations/overview").status_code == 200
-        assert client.get("/admin/apps/prototype/dashboard").status_code == 200
         operations = client.get("/operations", follow_redirects=False)
         assert operations.status_code in (200, 302)
 
@@ -251,37 +250,6 @@ class TestApprovalsAPI:
         res = client.get("/api/approvals?status=pending")
         assert res.status_code == 200
         assert res.json()["count"] == 1
-
-
-class TestPrototypeDashboardAPI:
-    def test_dashboard_unconfigured(self, client):
-        res = client.get("/api/prototype/dashboard")
-        assert res.status_code == 200
-        assert res.json()["configured"] is False
-
-    def test_dashboard_with_seed(self, temp_dir):
-        db_path = temp_dir / "ops.db"
-        app = create_app(
-            EXAMPLES_DIR,
-            store_path=db_path,
-            ontology_yaml_path=EXAMPLES_DIR / "prototype_ontology.yaml",
-            ontology_db_path=temp_dir / "prototype.db",
-        )
-        client = TestClient(app)
-
-        seed_res = client.post("/api/prototype/seed")
-        assert seed_res.status_code == 200
-        assert seed_res.json()["seeded"] is True
-
-        dash_res = client.get("/api/prototype/dashboard")
-        assert dash_res.status_code == 200
-        data = dash_res.json()
-        assert data["configured"] is True
-        assert data["summary"]["prototype_total"] == 4
-        assert data["by_status"]["available"] == 2
-
-        seed_again = client.post("/api/prototype/seed")
-        assert seed_again.json()["seeded"] is False
 
 
 class TestBatchApprovalAPI:

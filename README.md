@@ -68,13 +68,14 @@ pip install -e ".[dev]"
 
 ### 本机业务演示（推荐）
 
-适合在自己电脑上向业务方演示「对话查询 → 业务操作 → 审批 → 看板 → 审计」完整闭环。**不需要**配置 LLM、真实 ERP、IM 或邮件（默认规则引擎 + mock 通知即可）。
+适合在自己电脑上向业务方演示「对话查询 → 业务操作 → 审批 → 审计」完整闭环。**不需要**配置 LLM、真实 ERP、IM 或邮件（默认规则引擎 + mock 通知即可）。
 
 **1. 准备共享数据目录**（Chainlit 与 Admin 必须指向同一数据库）：
 
 ```bash
 mkdir -p data
 export ONTOLOGY_STORE_PATH=./data/demo.db
+export ONTOLOGY_YAML=./examples/demo_ontology.yaml
 export ONTOLOGY_SEED=true
 ```
 
@@ -83,6 +84,7 @@ export ONTOLOGY_SEED=true
 ```bash
 ontology-admin \
   --store-path ./data/demo.db \
+  --ontology-yaml ./examples/demo_ontology.yaml \
   --ontology-db ./data/demo.db \
   --port 8080
 ```
@@ -97,21 +99,22 @@ chainlit run chainlit_app.py
 
 打开 http://localhost:8000
 
-**4. 建议演示话术**（在 Chainlit 中依次输入）：
+**4. 建议演示话术**（在 Chainlit 中依次输入，基于 `demo_ontology.yaml`）：
 
 | 步骤 | 输入 | 展示点 |
 |------|------|--------|
-| 1 | `查询所有可用样机` | 自然语言查询 → 结构化结果 |
-| 2 | `SN-2024-001 归属哪个项目` | 关系遍历 |
-| 3 | `样机看板统计` | 运营指标汇总 |
-| 4 | `预约 SN-2024-003` | 审批门禁（弹出批准/拒绝按钮） |
+| 1 | `查询所有 Person` | 自然语言查询 → 结构化结果 |
+| 2 | `Alice 负责哪些项目` | 关系遍历 |
+| 3 | `创建一个新项目叫 Demo` | 写操作与审批门禁（若动作需审批） |
 
-批准后切换到运营中心（`/admin/operations/approvals`），展示看板变化与审计日志。可选补充页面：
+批准后切换到运营中心（`/admin/operations/approvals`），查看审批记录与审计日志。可选补充页面：
 
 - http://localhost:8080/admin/ontologies — 本体列表（新建 / 删除 / Excel 导入）
-- http://localhost:8080/admin/ontologies/prototype/graph — 本体关系图
+- http://localhost:8080/admin/ontologies/demo/graph — 本体关系图
 - http://localhost:8080/admin/integration/connectors — 数据采集配置
 - http://localhost:8080/admin/settings/llm — LLM 配置（有内网模型时可现场演示）
+
+> **样机管理应用**：若需演示样机场景，设置 `ONTOLOGY_APP=prototype` 与 `ONTOLOGY_YAML=./examples/prototype_ontology.yaml`，或使用 `ontology-platform --app prototype`（见下方）。
 
 > **提示**：若 `ontology-admin` / `chainlit` 命令找不到，改用 `python3 -m ontology_platform.admin` 与 `python3 -m chainlit run chainlit_app.py`。Admin 仅供本机/内网演示，勿暴露到公网（当前无登录鉴权）。
 
@@ -131,18 +134,19 @@ ontology-platform --app prototype --seed --query "查询所有可用样机"
 
 ```bash
 export ONTOLOGY_STORE_PATH=./data/demo.db   # 可选，启用持久化与审批 checkpoint
+export ONTOLOGY_YAML=./examples/demo_ontology.yaml   # 可选，默认解析 demo_ontology.yaml
 chainlit run chainlit_app.py
 ```
 
-浏览器打开 http://localhost:8000，可尝试：
+浏览器打开 http://localhost:8000，可尝试（demo 本体）：
 
-- `查询所有可用样机`
-- `SN-2024-001 归属哪个项目`
-- `预约 SN-2024-003`（弹出批准/拒绝按钮）
+- `查询所有 Person`
+- `Alice 负责哪些项目`
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `ONTOLOGY_APP` | `prototype` | `prototype` 或 `demo` |
+| `ONTOLOGY_YAML` | `examples/demo_ontology.yaml` | 本体 YAML 路径（目录内仅一个 yaml 时也可自动解析） |
+| `ONTOLOGY_APP` | — | 设为 `prototype` 时加载样机管理应用示例 |
 | `ONTOLOGY_STORE_PATH` | — | SQLite 持久化路径 |
 | `ONTOLOGY_INTEGRATIONS_DB` | 同 store | 消息日志与跟催任务库 |
 | `ONTOLOGY_SEED` | `true` | 启动时注入示例数据 |
@@ -168,7 +172,6 @@ ontology-admin --port 8080
 | 本体编辑器 | `/admin/ontologies/{name}/edit` | 编辑对象类型、属性、关系、动作，保存 YAML |
 | 本体图谱 | `/admin/ontologies/{name}/graph` | 交互式关系可视化 |
 | 运营中心 | `/admin/operations/overview` | 平台概览、审批、审计、消息、跟催 |
-| 应用示例 | `/admin/apps/prototype/dashboard` | 样机管理应用看板（演示） |
 | 数据连接 | `/admin/integration/connectors` | Connector 配置、凭据、Computer Use 任务 |
 | 数据映射 | `/admin/integration/mappings/discover` | 暂存数据浏览、字段映射、同步到 Ontology |
 | LLM 配置 | `/admin/settings/llm` | 模型、代理、内网 bypass |
@@ -179,6 +182,7 @@ ontology-admin --port 8080
 ontology-admin \
   --port 8080 \
   --store-path ./data/demo.db \
+  --ontology-yaml ./examples/demo_ontology.yaml \
   --ontology-db ./data/demo.db \
   --connector-db ./data/connector.db
 ```
@@ -218,7 +222,7 @@ curl -X POST "http://localhost:8080/api/ontologies/import?overwrite=false" \
 | `/editor` | `/admin/ontologies/edit` |
 | `/visualize` | `/admin/ontologies/graph` |
 | `/operations` | `/admin/operations/overview` |
-| `/admin/operations/dashboard` | `/admin/apps/prototype/dashboard` |
+| `/admin/operations/dashboard` | `/admin/operations/overview` |
 | `/connectors` | `/admin/integration/connectors` |
 | `/mappings` | `/admin/integration/mappings/discover` |
 | `/settings/llm` | `/admin/settings/llm` |

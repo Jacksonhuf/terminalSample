@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from ontology_platform.agent.config import AgentConfig
-from ontology_platform.apps.prototype import PrototypeApp
 from ontology_platform.llm.loader import load_llm_runtime
 from ontology_platform.platform import AgentPlatform
 
@@ -29,5 +28,4 @@ def build_runtime_platform(
         enable_approval_flow=True,
     )
     model, _ = load_llm_runtime(config)
-    app = PrototypeApp.create(ontology_path=ontology_yaml, config=config, model=model)
-    return app.platform
+    return AgentPlatform.from_yaml(ontology_yaml, config=config, model=model)

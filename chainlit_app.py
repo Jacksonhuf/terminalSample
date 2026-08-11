@@ -4,13 +4,14 @@ Run:
     chainlit run chainlit_app.py
 
 Environment variables:
-    ONTOLOGY_APP=prototype|demo     (default: prototype)
-    ONTOLOGY_STORE_PATH=./data.db   (optional SQLite persistence)
-    ONTOLOGY_SEED=true              (seed demo data on startup)
-    ONTOLOGY_USER_ID=anonymous      (fallback user when Chainlit auth disabled)
-    ONTOLOGY_USER_ROLES=operator    (fallback roles, comma-separated)
-    ONTOLOGY_APPROVER_ROLES=admin   (approver roles when auth disabled)
-    ONTOLOGY_ROLE_MAP={}            (optional JSON map prefix -> roles)
+    ONTOLOGY_YAML=./examples/demo_ontology.yaml   (default ontology file)
+    ONTOLOGY_APP=prototype                        (optional: load PrototypeApp example)
+    ONTOLOGY_STORE_PATH=./data.db                 (optional SQLite persistence)
+    ONTOLOGY_SEED=true                            (seed demo data on startup)
+    ONTOLOGY_USER_ID=anonymous                    (fallback user when Chainlit auth disabled)
+    ONTOLOGY_USER_ROLES=operator                  (fallback roles, comma-separated)
+    ONTOLOGY_APPROVER_ROLES=admin                 (approver roles when auth disabled)
+    ONTOLOGY_ROLE_MAP={}                          (optional JSON map prefix -> roles)
 """
 
 from __future__ import annotations
@@ -21,16 +22,15 @@ from pathlib import Path
 import chainlit as cl
 
 from ontology_platform.agent.config import AgentConfig
-from ontology_platform.apps.prototype import PrototypeApp
 from ontology_platform.chat.chainlit_helpers import summarize_chat_result
 from ontology_platform.chat.identity import resolve_approver_identity, resolve_chainlit_identity
+from ontology_platform.ontology.paths import resolve_primary_ontology_yaml
 from ontology_platform.platform import AgentPlatform
 
 EXAMPLES_DIR = Path(__file__).parent / "examples"
 
 
 def _build_app():
-    app_name = os.getenv("ONTOLOGY_APP", "prototype")
     store_path = os.getenv("ONTOLOGY_STORE_PATH")
     integrations_db = os.getenv("ONTOLOGY_INTEGRATIONS_DB") or store_path
     config = AgentConfig(
@@ -45,16 +45,27 @@ def _build_app():
 
         model, _ = load_llm_runtime(config)
 
-    if app_name == "demo":
-        platform = AgentPlatform.from_yaml(EXAMPLES_DIR / "demo_ontology.yaml", config=config, model=model)
-        if os.getenv("ONTOLOGY_SEED", "true").lower() == "true":
-            platform.seed_demo_data()
-        return platform, "demo"
+    app_name = os.getenv("ONTOLOGY_APP", "").strip().lower()
+    if app_name == "prototype":
+        from ontology_platform.apps.prototype import PrototypeApp
 
-    app = PrototypeApp.create(config=config, model=model)
+        ontology_path = resolve_primary_ontology_yaml(EXAMPLES_DIR) or (
+            EXAMPLES_DIR / "prototype_ontology.yaml"
+        )
+        app = PrototypeApp.create(ontology_path=ontology_path, config=config, model=model)
+        if os.getenv("ONTOLOGY_SEED", "true").lower() == "true":
+            app.seed()
+        return app.platform, "prototype"
+
+    ontology_path = resolve_primary_ontology_yaml(EXAMPLES_DIR)
+    if ontology_path is None:
+        raise RuntimeError(
+            "未找到本体 YAML。请设置 ONTOLOGY_YAML，或将 demo_ontology.yaml 放在 examples/ 目录。"
+        )
+    platform = AgentPlatform.from_yaml(ontology_path, config=config, model=model)
     if os.getenv("ONTOLOGY_SEED", "true").lower() == "true":
-        app.seed()
-    return app.platform, "prototype"
+        platform.seed_demo_data()
+    return platform, ontology_path.stem
 
 
 @cl.on_chat_start
@@ -71,12 +82,11 @@ async def on_chat_start():
     await cl.Message(
         content=(
             f"👋 **Ontology 智能体已就绪**\n\n"
-            f"- 应用: `{app_name}`\n"
             f"- 本体: `{ontology.name}` v{ontology.version}\n"
             f"- 当前用户: `{user_id}` | 角色: `{', '.join(roles)}`\n"
             f"- 对象类型: {len(ontology.object_types)} 个\n"
             f"- 可执行动作: {len(ontology.actions)} 个\n\n"
-            f"你可以查询样机、遍历关系，或执行预约/领用等操作。\n"
+            f"你可以查询对象、遍历关系，或执行已定义的业务动作。\n"
             f"写操作若需审批，会弹出批准/拒绝按钮。"
         )
     ).send()
