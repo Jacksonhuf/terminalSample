@@ -10,8 +10,34 @@ from pydantic import BaseModel, Field
 
 class CaptureMode(str, Enum):
     COMPUTER_USE = "computer_use"
+    BROWSER_EXTENSION = "browser_extension"
     API = "api"
     FILE = "file"
+
+
+class BrowserScriptStepInline(BaseModel):
+    action: str
+    selector: str = ""
+    url: str = ""
+    text: str = ""
+    value: str = ""
+    field: str = ""
+    record_type: str = ""
+    external_id: str = ""
+    ms: int = 2000
+    index: int = -1
+
+
+class BrowserActionDefInline(BaseModel):
+    name: str
+    display_name: str = ""
+    description: str = ""
+    steps: list[BrowserScriptStepInline] = Field(default_factory=list)
+
+
+class BrowserProfileInline(BaseModel):
+    url_patterns: list[str] = Field(default_factory=lambda: ["http://*/*", "https://*/*"])
+    drive_mode: str = "scripted"
 
 
 class FieldMapping(BaseModel):
@@ -62,6 +88,9 @@ class ConnectorDef(BaseModel):
     record_mappings: list[RecordMapping] = Field(default_factory=list)
     computer_use_hints: list[str] = Field(default_factory=list)
     schedule: CaptureSchedule | None = None
+    browser_profile: BrowserProfileInline = Field(default_factory=BrowserProfileInline)
+    browser_script: list[BrowserScriptStepInline] = Field(default_factory=list)
+    browser_actions: list[BrowserActionDefInline] = Field(default_factory=list)
 
 
 class CaptureRecord(BaseModel):

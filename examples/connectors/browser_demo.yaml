@@ -1,0 +1,35 @@
+name: browser_demo
+description: Browser Extension 演示 — 从公开页面采集标题与表格样例
+
+mode: browser_extension
+source_url: https://example.com
+
+browser_profile:
+  drive_mode: scripted
+  url_patterns:
+    - https://example.com/*
+    - http://example.com/*
+
+browser_script:
+  - action: goto
+    url: "{{source_url}}"
+  - action: wait
+    ms: 800
+  - action: snapshot
+  - action: extract
+    selector: h1
+    field: title
+    record_type: page_snapshot
+    external_id: example-home
+  - action: finish
+
+capture_instructions: |
+  演示 scripted 模式：打开 example.com，提取 h1 标题为一条 page_snapshot 记录。
+
+record_mappings:
+  - record_type: page_snapshot
+    object_type: Project
+    id_field: external_id
+    field_mappings:
+      - source: title
+        target: name

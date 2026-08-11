@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Adapter</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header>
+    <h1>Ontology Browser Adapter</h1>
+    <p class="subtitle">通用浏览器动作执行器</p>
+  </header>
+  <section class="card">
+    <div class="row"><span>平台</span><span id="platform-url">-</span></div>
+    <div class="row"><span>状态</span><span id="status-text">-</span></div>
+    <div class="row"><span>任务</span><span id="run-id">-</span></div>
+    <div class="row"><span>连接器</span><span id="connector-name">-</span></div>
+    <div class="row"><span>步骤</span><span id="step-info">-</span></div>
+  </section>
+  <div class="actions">
+    <button id="poll-btn">立即轮询</button>
+    <button id="options-btn" class="secondary">设置</button>
+  </div>
+  <p class="hint">在 Admin「数据连接」中发起 Extension 采集后，扩展会自动拾取并执行脚本步骤。</p>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

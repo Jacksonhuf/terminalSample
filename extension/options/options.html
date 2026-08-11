@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Browser Adapter Settings</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 24px auto; padding: 0 16px; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    input { width: 100%; padding: 8px; margin-top: 6px; box-sizing: border-box; }
+    button { margin-top: 20px; padding: 10px 16px; }
+    .saved { color: #15803d; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Ontology Browser Adapter</h1>
+  <label for="platformBaseUrl">平台 Admin 地址</label>
+  <input id="platformBaseUrl" placeholder="http://127.0.0.1:8765" />
+  <label for="pollIntervalSec">轮询间隔（秒）</label>
+  <input id="pollIntervalSec" type="number" min="3" max="120" />
+  <label><input type="checkbox" id="enabled" /> 启用自动轮询</label>
+  <button id="save">保存</button>
+  <div id="msg" class="saved"></div>
+  <script src="options.js"></script>
+</body>
+</html>
