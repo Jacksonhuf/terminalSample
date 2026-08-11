@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Ontology Platform Browser Adapter",
+  "version": "0.1.0",
+  "description": "Generic browser action executor for Ontology Platform data connectors.",
+  "permissions": ["storage", "tabs", "scripting", "activeTab", "sidePanel", "alarms"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Ontology Browser Adapter"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

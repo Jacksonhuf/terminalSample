@@ -65,6 +65,7 @@ export async function mount(container, params, ctx) {
                 <td>${escHtml(c.credential_ref || '-')}</td>
                 <td>
                   <button class="btn btn-primary btn-sm" onclick="runCaptureByName('${escAttr(c.name)}', true)">采集</button>
+                  ${c.mode === 'browser_extension' ? `<button class="btn btn-secondary btn-sm" onclick="runBrowserExtensionByName('${escAttr(c.name)}')">Extension</button>` : ''}
                   <button class="btn btn-secondary btn-sm" onclick='editConnector(${JSON.stringify(c).replace(/'/g, "&#39;")})'>编辑</button>
                   <button class="btn btn-secondary btn-sm" onclick="deleteConnector('${escHtml(c.name)}')">删除</button>
                 </td>
@@ -201,6 +202,30 @@ export async function mount(container, params, ctx) {
         }
         toast(`采集完成：${result.records_captured || 0} 条，同步 ${result.records_synced || 0} 条`);
         loadConnectors();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function runBrowserExtension() {
+      const name = document.getElementById('c-name').value.trim();
+      if (!name) { toast('请先保存连接器', 'error'); return; }
+      await runBrowserExtensionByName(name);
+    }
+
+    async function runBrowserExtensionByName(name) {
+      try {
+        toast('已创建 Extension 采集任务，请确保 Chrome 扩展已连接平台…');
+        const result = await api(`/connectors/${name}/browser-run`, {
+          method: 'POST',
+          body: JSON.stringify({ auto_sync: true }),
+        });
+        const out = document.getElementById('task-output');
+        if (out) {
+          out.style.display = 'block';
+          out.textContent = JSON.stringify(result, null, 2);
+        }
+        toast(`Extension 任务已创建：${result.run?.id || ''}`);
       } catch (e) {
         toast(e.message, 'error');
       }
@@ -347,6 +372,6 @@ export async function mount(container, params, ctx) {
     loadStatus();
     switchTab(params.tab || 'connectors');
 
-  Object.assign(window, { rotatePassword, editConnector, deleteCredential, editCredential, switchTab, loadCredentialOptions, loadConnectors, saveConnector, hideConnectorForm, loadStatus, deleteConnector, loadCredentials, showConnectorForm, saveCredential, hideCredentialForm, showCredentialForm, generateTask, runCapture, runCaptureByName });
-  return () => { delete window.deleteConnector; delete window.deleteCredential; delete window.editConnector; delete window.editCredential; delete window.generateTask; delete window.hideConnectorForm; delete window.hideCredentialForm; delete window.loadConnectors; delete window.loadCredentialOptions; delete window.loadCredentials; delete window.loadStatus; delete window.rotatePassword; delete window.runCapture; delete window.runCaptureByName; delete window.saveConnector; delete window.saveCredential; delete window.showConnectorForm; delete window.showCredentialForm; delete window.switchTab; };
+  Object.assign(window, { rotatePassword, editConnector, deleteCredential, editCredential, switchTab, loadCredentialOptions, loadConnectors, saveConnector, hideConnectorForm, loadStatus, deleteConnector, loadCredentials, showConnectorForm, saveCredential, hideCredentialForm, showCredentialForm, generateTask, runCapture, runCaptureByName, runBrowserExtension, runBrowserExtensionByName });
+  return () => { delete window.deleteConnector; delete window.deleteCredential; delete window.editConnector; delete window.editCredential; delete window.generateTask; delete window.hideConnectorForm; delete window.hideCredentialForm; delete window.loadConnectors; delete window.loadCredentialOptions; delete window.loadCredentials; delete window.loadStatus; delete window.rotatePassword; delete window.runCapture; delete window.runCaptureByName; delete window.runBrowserExtension; delete window.runBrowserExtensionByName; delete window.saveConnector; delete window.saveCredential; delete window.showConnectorForm; delete window.showCredentialForm; delete window.switchTab; };
 }

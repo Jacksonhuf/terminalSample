@@ -26,6 +26,7 @@ from ontology_platform.admin.connectors_api import (
     connector_to_public,
     save_connector_from_request,
 )
+from ontology_platform.admin.browser_api import BrowserStepRequest, CreateBrowserRunRequest
 from ontology_platform.admin.mapping_api import (
     SaveMappingProfileRequest,
     SyncMappingRequest,
@@ -119,6 +120,10 @@ def create_app(
         credential_store,
         mapping_store=mapping_store,
     )
+    from ontology_platform.connector.browser import build_browser_manager
+
+    _connector_db = Path(connector_db_path) if connector_db_path else connectors_path.parent / "connector.db"
+    browser_mgr = build_browser_manager(connector_mgr, _connector_db)
     if resolved_store_path and yaml_path.exists():
         try:
             import yaml as _yaml
@@ -190,6 +195,16 @@ def create_app(
         title="Ontology Admin",
         description="本体定义管理与可视化",
         version="0.1.0",
+    )
+
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # --- API ---
@@ -726,6 +741,51 @@ def create_app(
             raise HTTPException(404, f"Connector not found: {name}")
         runs = connector_mgr.store.list_runs(name, limit=limit)
         return {"runs": [r.model_dump() for r in runs], "count": len(runs)}
+
+    @app.post("/api/browser/runs")
+    def create_browser_run(body: CreateBrowserRunRequest = Body()):
+        try:
+            return browser_mgr.create_run(body)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Connector not found: {body.connector}")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/browser/runs/pending")
+    def list_pending_browser_runs(limit: int = 20):
+        return {"runs": browser_mgr.list_pending(limit), "count": len(browser_mgr.list_pending(limit))}
+
+    @app.get("/api/browser/runs/{run_id}")
+    def get_browser_run(run_id: str):
+        run = browser_mgr.get_run(run_id)
+        if run is None:
+            raise HTTPException(404, f"Browser run not found: {run_id}")
+        return run
+
+    @app.post("/api/browser/runs/{run_id}/heartbeat")
+    def browser_run_heartbeat(run_id: str):
+        if browser_mgr.get_run(run_id) is None:
+            raise HTTPException(404, f"Browser run not found: {run_id}")
+        browser_mgr.heartbeat(run_id)
+        return {"ok": True}
+
+    @app.post("/api/browser/runs/{run_id}/step")
+    def browser_run_step(run_id: str, body: BrowserStepRequest = Body()):
+        if browser_mgr.get_run(run_id) is None:
+            raise HTTPException(404, f"Browser run not found: {run_id}")
+        result = browser_mgr.process_step(run_id, body)
+        return result.model_dump()
+
+    @app.post("/api/connectors/{name}/browser-run")
+    def start_connector_browser_run(name: str, body: CreateBrowserRunRequest = Body()):
+        """Shorthand: create extension run for a connector."""
+        body.connector = name
+        try:
+            return browser_mgr.create_run(body)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Connector not found: {name}")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     @app.get("/api/llm/profiles")
     def list_llm_profiles():
