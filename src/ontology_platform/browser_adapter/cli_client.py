@@ -26,6 +26,11 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("health", help="GET /health on bridge")
+    sub.add_parser("ensure-bridge", help="Start local bridge on this machine if not running")
+    p_install = sub.add_parser("install-skill", help="Install SKILL.md for OpenClaw/Hermes (local machine)")
+    p_install.add_argument("--target", default="auto", choices=["auto", "openclaw", "hermes"])
+    p_install.add_argument("path", nargs="?", help="Custom install path")
+    p_install.add_argument("--skip-bridge", action="store_true")
 
     p_create = sub.add_parser("create-session", help="Create browser session")
     p_create.add_argument("--mode", default="interactive", choices=["interactive", "scripted", "async"])
@@ -39,6 +44,18 @@ def main() -> None:
     p_get.add_argument("session_id")
 
     args = parser.parse_args()
+
+    if args.cmd == "ensure-bridge":
+        from ontology_platform.browser_adapter.cli_skill import cmd_ensure_bridge
+
+        raise SystemExit(cmd_ensure_bridge(args.url))
+
+    if args.cmd == "install-skill":
+        from ontology_platform.browser_adapter.cli_skill import cmd_install_skill
+
+        target = args.path if args.path else args.target
+        raise SystemExit(cmd_install_skill(target, args.skip_bridge))
+
     client = BrowserAdapterClient(args.url)
 
     if args.cmd == "health":

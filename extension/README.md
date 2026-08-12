@@ -71,9 +71,20 @@ ontology-browser-bridge --host 0.0.0.0 --port 9920 --db ./browser.db
 
 ### 3. 智能体客户端（OpenClaw / Hermes / 自研 Agent）
 
+**方式 A：Skill 一键安装（推荐，本机 Bridge，无远程服务器）**
+
+```bash
+pip install -e ".[browser]"
+ontology-browser-client install-skill --target openclaw   # 或 hermes / auto
+# OpenClaw 也可：openclaw skills install ./skills/ontology-browser
+```
+
+**方式 B：仅 SDK / CLI**
+
 ```bash
 pip install -e ".[browser-client]"
 export BROWSER_BRIDGE_URL=http://127.0.0.1:9920
+ontology-browser-client ensure-bridge   # 本机未起 Bridge 时自动启动
 ```
 
 **Python SDK**
