@@ -106,7 +106,8 @@ def main() -> None:
     print(f"  Operations console: http://localhost:{args.port}/admin/operations/overview")
     print(f"  Data connectors: http://localhost:{args.port}/admin/integration/connectors")
     print(f"  Data mappings: http://localhost:{args.port}/admin/integration/mappings/discover")
-    print(f"  LLM settings: http://localhost:{args.port}/admin/settings/llm\n")
+    print(f"  LLM settings: http://localhost:{args.port}/admin/settings/llm")
+    print(f"  Browser Extension Bridge URL: http://127.0.0.1:{args.port}  (API v1)\n")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 

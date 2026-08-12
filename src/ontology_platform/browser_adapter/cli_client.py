@@ -29,9 +29,15 @@ def main() -> None:
     sub.add_parser("ensure-bridge", help="Start local bridge on this machine if not running")
     p_setup = sub.add_parser("setup", help="Install deps (optional), start bridge, show extension steps")
     p_setup.add_argument("--install", action="store_true", help="Run pip install -e .[browser] first")
-    p_test = sub.add_parser("test-capture", help="Run demo scripted capture (needs Chrome extension)")
+    p_setup.add_argument("--admin", action="store_true", help="Show Admin+Extension setup (port 8080)")
+    p_test = sub.add_parser("test-capture", help="Standalone bridge demo (9920, no Admin staging)")
     p_test.add_argument("--timeout", type=float, default=120.0)
     p_test.add_argument("--skip-bridge", action="store_true")
+    p_admin = sub.add_parser("test-admin-capture", help="Admin + browser_demo + extension (8080)")
+    p_admin.add_argument("--url", default=os.environ.get("ONTOLOGY_ADMIN_URL", "http://127.0.0.1:8080"))
+    p_admin.add_argument("--timeout", type=float, default=120.0)
+    p_admin.add_argument("--simulate", action="store_true")
+    p_admin.add_argument("--connector", default="browser_demo")
     p_install = sub.add_parser("install-skill", help="Install SKILL.md for OpenClaw/Hermes (local machine)")
     p_install.add_argument("--target", default="auto", choices=["auto", "openclaw", "hermes"])
     p_install.add_argument("path", nargs="?", help="Custom install path")
@@ -62,14 +68,23 @@ def main() -> None:
         raise SystemExit(cmd_install_skill(target, args.skip_bridge))
 
     if args.cmd == "setup":
-        from ontology_platform.browser_adapter.cli_quickstart import cmd_setup
+        from ontology_platform.browser_adapter.cli_quickstart import cmd_setup, cmd_setup_admin
 
+        if getattr(args, "admin", False):
+            raise SystemExit(cmd_setup_admin(getattr(args, "install", False)))
         raise SystemExit(cmd_setup(args.url, getattr(args, "install", False)))
 
     if args.cmd == "test-capture":
         from ontology_platform.browser_adapter.cli_quickstart import cmd_test_capture
 
         raise SystemExit(cmd_test_capture(args.url, args.timeout, args.skip_bridge))
+
+    if args.cmd == "test-admin-capture":
+        from ontology_platform.browser_adapter.cli_quickstart import cmd_test_admin_capture
+
+        raise SystemExit(
+            cmd_test_admin_capture(args.url, args.timeout, args.simulate, args.connector)
+        )
 
     client = BrowserAdapterClient(args.url)
 
