@@ -54,6 +54,47 @@ git push origin browser-extension-v0.1.0
 
 Tag 命名规则：`browser-extension-v*`（例如 `browser-extension-v0.1.0`）。
 
+## 在其他智能体上安装调用
+
+### 1. Chrome 扩展（用户浏览器）
+
+从 [Releases](https://github.com/Jacksonhuf/terminalSample/releases) 安装，选项页 **Bridge URL** 指向 Bridge 服务地址。
+
+### 2. Bridge 服务（HTTP API）
+
+```bash
+pip install -e ".[browser-bridge]"   # 或 pip install "git+https://github.com/Jacksonhuf/terminalSample.git@main[browser-bridge]"
+ontology-browser-bridge --host 0.0.0.0 --port 9920 --db ./browser.db
+```
+
+验证：`curl http://127.0.0.1:9920/health`
+
+### 3. 智能体客户端（OpenClaw / Hermes / 自研 Agent）
+
+```bash
+pip install -e ".[browser-client]"
+export BROWSER_BRIDGE_URL=http://127.0.0.1:9920
+```
+
+**Python SDK**
+
+```python
+from ontology_platform.browser_adapter import BrowserAdapterClient
+client = BrowserAdapterClient("http://127.0.0.1:9920")
+```
+
+**CLI（无代码快速测通）**
+
+```bash
+ontology-browser-client health
+ontology-browser-client create-session --mode interactive --start-url https://example.com
+ontology-browser-client snapshot <session_id>
+```
+
+**任意语言**：直接 HTTP 调用 `/v1/browser/sessions` 与 `/v1/browser/sessions/{id}/commands`。
+
+依赖清单见 `examples/agents/requirements-browser-client.txt`（客户端）与 `requirements-browser-bridge.txt`（Bridge）。
+
 ## Agent 调用（Python SDK）
 
 ```python

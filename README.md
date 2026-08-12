@@ -464,11 +464,62 @@ Chrome 扩展 + Browser Bridge 组成**与 Ontology 解耦**的浏览器执行�
 | `POST` | `/v1/browser/sessions/{id}/steps` | 扩展 — step 循环（上报结果 + 取下一条命令） |
 | `POST` | `/v1/browser/sessions/{id}/heartbeat` | 扩展 — 心跳 |
 
+**安装命令（部署到其他智能体 / 环境）**
+
+三套组件可分开安装：
+
+| 组件 | 安装命令 | 说明 |
+|------|----------|------|
+| **Chrome 扩展** | [GitHub Release zip](https://github.com/Jacksonhuf/terminalSample/releases) | 无需 pip，解压后在 Chrome 加载 |
+| **Bridge 服务** | 见下方 | 与扩展 HTTP 通信，可单独部署 |
+| **Agent 客户端** | 见下方 | 安装 SDK，在 OpenClaw / Hermes / 自研 Agent 中调用 |
+
+```bash
+# ── 方式 A：从本仓库安装（开发 / 内网）──
+
+# Bridge 服务机（只需 API，不要 Admin UI）
+pip install -e ".[browser-bridge]"
+ontology-browser-bridge --host 0.0.0.0 --port 9920 --db ./browser.db
+
+# 智能体所在机器（Python Agent / SKILL 后端）
+pip install -e ".[browser-client]"
+export BROWSER_BRIDGE_URL=http://<bridge-host>:9920
+ontology-browser-client health
+ontology-browser-client create-session --start-url https://example.com
+
+# 一次装齐 Bridge + Client
+pip install -e ".[browser]"
+
+# ── 方式 B：从 GitHub 安装（其他机器 clone 不便时）──
+
+pip install "git+https://github.com/Jacksonhuf/terminalSample.git@main#egg=ontology-agent-platform[browser]"
+
+# ── 方式 C：已跑 Ontology Admin 时可不单独起 Bridge ──
+
+pip install -e ".[browser-client]"
+export BROWSER_BRIDGE_URL=http://127.0.0.1:8080   # ontology-admin 内置 /v1/browser
+```
+
+**在智能体代码中调用**
+
+```python
+import os
+from ontology_platform.browser_adapter import BrowserAdapterClient
+
+client = BrowserAdapterClient(os.environ.get("BROWSER_BRIDGE_URL", "http://127.0.0.1:9920"))
+created = client.create_session(mode="interactive", start_url="https://example.com")
+sid = created["session"]["id"]
+client.snapshot(sid)   # 需用户 Chrome 已装扩展并指向同一 Bridge
+```
+
+Shell / 非 Python 智能体可直接调 REST：`POST $BROWSER_BRIDGE_URL/v1/browser/sessions`，详见上文 API 表。
+
 **快速验证**
 
 ```bash
-# 1. 启动 Admin（Bridge 内置其中）
-ontology-admin --port 8080 --connector-db ./data/connector.db
+# 1. 启动 Bridge（二选一）
+ontology-browser-bridge --port 9920 --db ./browser.db          # 轻量独立服务
+# ontology-admin --port 8080 --connector-db ./data/connector.db  # 或完整 Admin
 
 # 2. 创建 scripted session（扩展需已加载并在轮询）
 curl -X POST http://localhost:8080/v1/browser/sessions \

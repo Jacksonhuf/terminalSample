@@ -44,12 +44,28 @@ checkpoint = [
 capture = [
     "playwright>=1.40.0",
 ]
+browser-bridge = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+]
+browser-client = [
+    "httpx>=0.27.0",
+    "pydantic>=2.0",
+]
+browser = [
+    "httpx>=0.27.0",
+    "pydantic>=2.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+]
 
 [project.scripts]
 ontology-platform = "ontology_platform.cli:main"
 ontology-admin = "ontology_platform.admin.__main__:main"
 ontology-connector = "ontology_platform.connector.cli:main"
 ontology-outreach = "ontology_platform.integrations.cli:main"
+ontology-browser-bridge = "ontology_platform.browser_adapter.__main__:main"
+ontology-browser-client = "ontology_platform.browser_adapter.cli_client:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ontology_platform"]
