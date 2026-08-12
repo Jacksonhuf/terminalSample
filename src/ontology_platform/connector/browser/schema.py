@@ -117,7 +117,7 @@ class BrowserStepResponse(BaseModel):
 
 
 class CreateBrowserRunRequest(BaseModel):
-    connector: str
+    connector: str = ""
     drive_mode: BrowserDriveMode | None = None
     action_name: str = ""
     source_url: str = ""

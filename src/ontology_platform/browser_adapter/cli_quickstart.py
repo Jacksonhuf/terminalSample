@@ -31,8 +31,16 @@ DEFAULT_SCRIPT = [
 ]
 
 
+ADMIN_DEFAULT_URL = "http://127.0.0.1:8080"
+STANDALONE_DEFAULT_URL = "http://127.0.0.1:9920"
+
+
 def _default_url() -> str:
-    return os.environ.get("BROWSER_BRIDGE_URL", "http://127.0.0.1:9920")
+    return os.environ.get("BROWSER_BRIDGE_URL", STANDALONE_DEFAULT_URL)
+
+
+def _admin_url() -> str:
+    return os.environ.get("ONTOLOGY_ADMIN_URL", ADMIN_DEFAULT_URL)
 
 
 def _repo_root() -> Path:
@@ -46,6 +54,28 @@ def _demo_script() -> tuple[list[dict], str]:
         start_url = data.get("source_url") or "https://example.com"
         return script, start_url
     return DEFAULT_SCRIPT, "https://example.com"
+
+
+def _print_admin_instructions(url: str) -> None:
+    ext_dir = _repo_root() / "extension"
+    print(
+        f"""
+╔══════════════════════════════════════════════════════════════╗
+║  Browser Extension + Ontology Admin 联调（推荐）             ║
+╠══════════════════════════════════════════════════════════════╣
+║  1. 启动 Admin（另开终端）                                   ║
+║     ontology-admin --port 8080 --connector-db ./data/connector.db
+║  2. Chrome 扩展 Options                                      ║
+║     • Bridge URL: {url}  （必须与 Admin 端口一致）
+║     • API 版本: v1                                           ║
+║  3. 测试采集 + 查看暂存数据                                  ║
+║     ontology-browser-client test-admin-capture               ║
+║     浏览器打开: {url}/admin/integration/mappings/discover
+╚══════════════════════════════════════════════════════════════╝
+"""
+    )
+    if ext_dir.is_dir():
+        print(f"  扩展目录: {ext_dir.resolve()}\n")
 
 
 def _print_setup_instructions(url: str) -> None:
@@ -64,6 +94,9 @@ def _print_setup_instructions(url: str) -> None:
 ║     • API 版本: v1                                           ║
 ║  3. 运行采集测试                                             ║
 ║     ontology-browser-client test-capture                     ║
+║                                                              ║
+║  ※ 若要与 Ontology Admin 联调，请用 Admin 8080 而非 9920：   ║
+║     ontology-browser-client test-admin-capture               ║
 ╚══════════════════════════════════════════════════════════════╝
 """.format(url=url)
     )
@@ -148,6 +181,145 @@ def cmd_test_capture(url: str, timeout_sec: float, skip_bridge: bool) -> int:
     return 1
 
 
+def _poll_admin_run(base_url: str, run_id: str, timeout_sec: float) -> dict:
+    import time
+
+    deadline = time.time() + timeout_sec
+    last: dict = {}
+    while time.time() < deadline:
+        resp = httpx.get(f"{base_url.rstrip('/')}/api/browser/runs/{run_id}", timeout=10.0)
+        resp.raise_for_status()
+        last = resp.json()
+        if last.get("status") in ("completed", "failed"):
+            return last
+        time.sleep(1.5)
+    raise TimeoutError(f"admin run {run_id} not finished within {timeout_sec}s")
+
+
+def cmd_test_admin_capture(
+    url: str,
+    timeout_sec: float,
+    simulate: bool,
+    connector: str,
+) -> int:
+    base = url.rstrip("/")
+    print(f"Ontology Admin: {base}")
+    print(f"Connector: {connector}")
+    print("Extension Bridge URL 必须设为同一地址（默认 8080）\n")
+
+    try:
+        health = httpx.get(f"{base}/v1/browser/sessions/pending", timeout=5.0)
+        if health.status_code >= 500:
+            raise httpx.HTTPError(f"admin not reachable: {health.status_code}")
+    except httpx.HTTPError as exc:
+        print(
+            json_dump(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "hint": "请先运行: ontology-admin --port 8080 --connector-db ./data/connector.db",
+                }
+            )
+        )
+        return 1
+
+    created = httpx.post(
+        f"{base}/api/connectors/{connector}/browser-run",
+        json={"auto_sync": False},
+        timeout=15.0,
+    )
+    if created.status_code == 404:
+        print(json_dump({"ok": False, "error": f"connector not found: {connector}"}))
+        return 1
+    created.raise_for_status()
+    payload = created.json()
+    run_id = payload.get("run", {}).get("id") or payload.get("session", {}).get("id")
+    if not run_id:
+        print(json_dump({"ok": False, "error": "no run id returned", "payload": payload}))
+        return 1
+
+    print(f"Created run: {run_id}")
+    if simulate:
+        from ontology_platform.browser_adapter.extension_simulator import run_extension_simulation
+
+        sim = run_extension_simulation(base, api="v1", run_id=run_id)
+        final = _poll_admin_run(base, run_id, timeout_sec=10.0)
+    else:
+        print("等待 Chrome 扩展执行（最多 {}s）…".format(int(timeout_sec)))
+        try:
+            final = _poll_admin_run(base, run_id, timeout_sec)
+        except TimeoutError as exc:
+            print(
+                json_dump(
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "run_id": run_id,
+                        "hint": "扩展 Bridge URL 是否为 {}？扩展是否已加载并在轮询？".format(base),
+                    }
+                )
+            )
+            return 1
+        sim = None
+
+    completion = final.get("completion") or {}
+    captured = final.get("records_captured") or completion.get("records_captured") or 0
+
+    staging = httpx.get(f"{base}/api/mappings/staging", timeout=10.0)
+    staging.raise_for_status()
+    staging_data = staging.json()
+
+    connector_rows = [
+        s
+        for s in staging_data.get("summaries", [])
+        if s.get("connector_name") == connector
+    ]
+
+    result = {
+        "ok": final.get("status") == "completed" and captured > 0,
+        "status": final.get("status"),
+        "run_id": run_id,
+        "records_captured": captured,
+        "records_synced": completion.get("records_synced", 0),
+        "completion": completion,
+        "staging_for_connector": connector_rows,
+        "mappings_url": f"{base}/admin/integration/mappings/discover",
+        "simulated": simulate,
+    }
+    if sim:
+        result["simulation"] = sim.get("session")
+
+    print(json_dump(result))
+
+    if result["ok"]:
+        print(f"\n✓ Admin 采集成功：{captured} 条已写入暂存区")
+        print(f"  在浏览器查看: {result['mappings_url']}")
+        return 0
+
+    print("\n✗ Admin 采集未成功", file=sys.stderr)
+    return 1
+
+
+def cmd_setup_admin(install_deps: bool) -> int:
+    url = _admin_url()
+    if install_deps:
+        root = _repo_root()
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{root}[browser]"], check=True)
+    _print_admin_instructions(url)
+    print(
+        json_dump(
+            {
+                "ok": True,
+                "admin_url": url,
+                "extension_bridge_url": url,
+                "start_admin": "ontology-admin --port 8080 --connector-db ./data/connector.db",
+                "test": "ontology-browser-client test-admin-capture",
+            }
+        )
+    )
+    return 0
+
+
 def main() -> None:
     import argparse
 
@@ -157,16 +329,36 @@ def main() -> None:
 
     p_setup = sub.add_parser("setup", help="Start local bridge and print extension setup steps")
     p_setup.add_argument("--install", action="store_true", help="pip install -e .[browser] first")
+    p_setup.add_argument(
+        "--admin",
+        action="store_true",
+        help="Print Ontology Admin + Extension instructions (port 8080, no standalone bridge)",
+    )
 
-    p_test = sub.add_parser("test-capture", help="Run browser_demo scripted capture via extension")
+    p_test = sub.add_parser("test-capture", help="Standalone bridge capture test (port 9920)")
     p_test.add_argument("--timeout", type=float, default=120.0, help="Max wait seconds")
     p_test.add_argument("--skip-bridge", action="store_true", help="Assume bridge already running")
 
+    p_admin = sub.add_parser(
+        "test-admin-capture",
+        help="Test via Ontology Admin + browser_demo connector (extension on port 8080)",
+    )
+    p_admin.add_argument("--url", default=_admin_url(), help="Ontology Admin URL")
+    p_admin.add_argument("--timeout", type=float, default=120.0)
+    p_admin.add_argument("--simulate", action="store_true", help="Simulate extension (CI/dev, no Chrome)")
+    p_admin.add_argument("--connector", default="browser_demo")
+
     args = parser.parse_args()
     if args.cmd == "setup":
+        if getattr(args, "admin", False):
+            raise SystemExit(cmd_setup_admin(args.install))
         raise SystemExit(cmd_setup(args.url, args.install))
     if args.cmd == "test-capture":
         raise SystemExit(cmd_test_capture(args.url, args.timeout, args.skip_bridge))
+    if args.cmd == "test-admin-capture":
+        raise SystemExit(
+            cmd_test_admin_capture(args.url, args.timeout, args.simulate, args.connector)
+        )
     parser.error(f"unknown: {args.cmd}")
 
 

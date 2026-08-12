@@ -46,7 +46,12 @@ async function findOrCreateTab(url) {
     return active;
   }
   const tabs = await chrome.tabs.query({});
-  const existing = tabs.find((t) => t.url && t.url.startsWith(url.split("?")[0].slice(0, 24)));
+  const prefix = url.split("?")[0].replace(/\/$/, "");
+  const existing = tabs.find((t) => {
+    if (!t.url) return false;
+    const tabUrl = t.url.split("?")[0].replace(/\/$/, "");
+    return tabUrl === prefix || tabUrl.startsWith(prefix);
+  });
   if (existing?.id) {
     await chrome.tabs.update(existing.id, { active: true });
     return existing;
@@ -181,7 +186,19 @@ async function processSession(session) {
     }
 
     if (command.action === "finish") {
-      await broadcastStatus({ active: false, runId: sessionId, message: command.message || "脚本结束" });
+      const exec = await executeOnTab(tab.id, command);
+      body = {
+        page_state: exec.page_state,
+        step_result: { action: "finish" },
+        records: exec.records || [],
+      };
+      const final = await postStep(cfg, sessionId, body);
+      await broadcastStatus({
+        active: false,
+        runId: sessionId,
+        status: final.status || "completed",
+        message: final.message || command.message || "脚本结束",
+      });
       break;
     }
 
@@ -276,7 +293,13 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "sync") return;
-  if (changes.pollIntervalSec || changes.enabled || changes.bridgeUrl || changes.platformBaseUrl) {
+  if (
+    changes.pollIntervalSec ||
+    changes.enabled ||
+    changes.bridgeUrl ||
+    changes.platformBaseUrl ||
+    changes.apiVersion
+  ) {
     configurePolling();
   }
 });

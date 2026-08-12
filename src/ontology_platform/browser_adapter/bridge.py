@@ -190,10 +190,16 @@ class BrowserBridge:
         message = ""
 
         finish_requested = (
-            incoming_data
-            or body.step_result.get("action") == "finish"
+            body.step_result.get("action") == "finish"
             or (body.page_state and body.page_state.extracted.get("_finish"))
         )
+        if mode == "scripted" and steps and incoming_data:
+            # Only auto-complete on extract/finish steps, not spurious records mid-script
+            prev_idx = max(0, step_index - 1)
+            if prev_idx < len(steps):
+                prev_action = steps[prev_idx].get("action") if isinstance(steps[prev_idx], dict) else ""
+                if prev_action in ("extract", "finish"):
+                    finish_requested = True
 
         if mode == "interactive":
             pending_json = row.get("pending_command_json")

@@ -56,14 +56,21 @@ Tag 命名规则：`browser-extension-v*`（例如 `browser-extension-v0.1.0`）
 
 ## 最快上手（测试能否采集）
 
+**与 Ontology Admin 联调（推荐，数据会进「映射 · 浏览」）：**
+
 ```bash
 git clone https://github.com/Jacksonhuf/terminalSample.git && cd terminalSample
-./scripts/browser-quickstart.sh          # 装依赖 + 起 Bridge + 打印 3 步说明
-# Chrome 加载 extension/，Options → Bridge URL = http://127.0.0.1:9920，API v1
-ontology-browser-client test-capture     # 跑 example.com 演示采集
+./scripts/browser-admin-test.sh
+# Chrome 扩展 Options → Bridge URL = http://127.0.0.1:8080，API v1
+ontology-browser-client test-admin-capture
 ```
 
-成功时会打印 `collected_data`（例如从 example.com 提取的 h1 标题）。
+**仅测扩展 + 独立 Bridge（9920，不进 Admin 暂存区）：**
+
+```bash
+./scripts/browser-quickstart.sh
+ontology-browser-client test-capture
+```
 
 ## 在其他智能体上安装调用
 
