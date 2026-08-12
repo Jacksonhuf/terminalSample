@@ -16,9 +16,43 @@ Chrome Extension → 用户浏览器 Tab（SSO 会话）
 
 ## 安装
 
-1. Chrome → `chrome://extensions` → 开发者模式 → 加载 `extension/`
+### 从 GitHub Release 安装（推荐）
+
+1. 打开 [Releases](https://github.com/Jacksonhuf/terminalSample/releases)，下载 `browser-action-adapter-x.y.z.zip`
+2. 解压到本地目录
+3. Chrome → `chrome://extensions` → 开发者模式 → **加载已解压的扩展程序** → 选择解压后的文件夹
+
+### 从源码安装（开发）
+
+1. Chrome → `chrome://extensions` → 开发者模式 → 加载本仓库 `extension/` 目录
 2. 选项页设置 **Bridge 地址**（默认 `http://127.0.0.1:8080`）
 3. API 版本选 **v1**（推荐）
+
+## 打包构建
+
+本扩展**独立于 Python wheel**，在仓库根目录执行：
+
+```bash
+chmod +x scripts/build-extension.sh
+./scripts/build-extension.sh
+# 产物：dist/browser-action-adapter-<version>.zip
+```
+
+版本号来自 `extension/manifest.json` 的 `version` 字段。
+
+### 发布 Release（维护者）
+
+```bash
+# 1. 更新 extension/manifest.json 中的 version
+# 2. 提交并推送 main
+# 3. 打 tag 触发 GitHub Actions 自动发布
+git tag browser-extension-v0.1.0
+git push origin browser-extension-v0.1.0
+```
+
+也可在 GitHub Actions 中手动运行 **Release Browser Extension** workflow（仅上传 artifact，不创建 Release）。
+
+Tag 命名规则：`browser-extension-v*`（例如 `browser-extension-v0.1.0`）。
 
 ## Agent 调用（Python SDK）
 
