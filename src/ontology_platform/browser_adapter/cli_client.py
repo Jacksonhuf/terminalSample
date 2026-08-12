@@ -27,6 +27,11 @@ def main() -> None:
 
     sub.add_parser("health", help="GET /health on bridge")
     sub.add_parser("ensure-bridge", help="Start local bridge on this machine if not running")
+    p_setup = sub.add_parser("setup", help="Install deps (optional), start bridge, show extension steps")
+    p_setup.add_argument("--install", action="store_true", help="Run pip install -e .[browser] first")
+    p_test = sub.add_parser("test-capture", help="Run demo scripted capture (needs Chrome extension)")
+    p_test.add_argument("--timeout", type=float, default=120.0)
+    p_test.add_argument("--skip-bridge", action="store_true")
     p_install = sub.add_parser("install-skill", help="Install SKILL.md for OpenClaw/Hermes (local machine)")
     p_install.add_argument("--target", default="auto", choices=["auto", "openclaw", "hermes"])
     p_install.add_argument("path", nargs="?", help="Custom install path")
@@ -55,6 +60,16 @@ def main() -> None:
 
         target = args.path if args.path else args.target
         raise SystemExit(cmd_install_skill(target, args.skip_bridge))
+
+    if args.cmd == "setup":
+        from ontology_platform.browser_adapter.cli_quickstart import cmd_setup
+
+        raise SystemExit(cmd_setup(args.url, getattr(args, "install", False)))
+
+    if args.cmd == "test-capture":
+        from ontology_platform.browser_adapter.cli_quickstart import cmd_test_capture
+
+        raise SystemExit(cmd_test_capture(args.url, args.timeout, args.skip_bridge))
 
     client = BrowserAdapterClient(args.url)
 
