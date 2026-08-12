@@ -2,7 +2,7 @@
     <div class="toolbar">
       <div>
         <h1 class="page-title">数据连接</h1>
-        <p class="page-subtitle" id="status-info">配置 Computer Use 采集目标与登录凭据</p>
+        <p class="page-subtitle" id="status-info">配置数据连接器、凭据与 Extension / Computer Use 采集</p>
       </div>
     </div>
 
@@ -21,7 +21,7 @@
         <div class="form-grid">
           <label>名称<input id="c-name" placeholder="prototype_erp"></label>
           <label>模式
-            <select id="c-mode"><option value="computer_use">computer_use</option><option value="browser_extension">browser_extension</option><option value="file">file</option></select>
+            <select id="c-mode" onchange="updateConnectorModeButtons()"><option value="computer_use">computer_use</option><option value="browser_extension">browser_extension</option><option value="file">file</option></select>
           </label>
           <label>目标 URL<input id="c-source-url" placeholder="https://erp.example.com/list"></label>
           <label>凭据
@@ -39,8 +39,9 @@
           <button class="btn btn-secondary btn-sm" onclick="hideConnectorForm()">取消</button>
           <button class="btn btn-secondary btn-sm" id="c-task-btn" onclick="generateTask()">生成采集任务</button>
           <button class="btn btn-primary btn-sm" id="c-run-btn" onclick="runCapture(false)">立即采集</button>
-          <button class="btn btn-secondary btn-sm" onclick="runCapture(true)">演示采集 (Mock)</button>
-          <button class="btn btn-secondary btn-sm" id="c-browser-run-btn" onclick="runBrowserExtension()">Extension 采集</button>
+          <button class="btn btn-secondary btn-sm" id="c-mock-run-btn" onclick="runCapture(true)">演示采集 (Mock)</button>
+          <button class="btn btn-primary btn-sm" id="c-browser-run-btn" onclick="runBrowserExtension()">Extension 采集</button>
+          <button class="btn btn-secondary btn-sm" id="c-view-staging-btn" onclick="viewStagingData()">查看暂存数据</button>
         </div>
         <pre id="task-output" class="code-block" style="display:none; margin-top:12px"></pre>
       </div>

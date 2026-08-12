@@ -91,6 +91,9 @@ class TestBrowserRunLifecycle:
         assert final is not None
         assert final["status"] == "completed"
         assert final["records_captured"] >= 1
+        assert final.get("completion") is not None
+        assert final["completion"]["records_captured"] >= 1
+        assert final["completion"]["ingest"]["run_id"]
 
         row = connector_store.list_runs("browser_demo", limit=1)[0]
         assert row.records_captured >= 1

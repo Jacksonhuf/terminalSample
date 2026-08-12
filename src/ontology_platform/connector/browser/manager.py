@@ -107,7 +107,12 @@ class BrowserActionManager:
         session = self.bridge.get_session(run_id)
         if session is None:
             return None
-        return _session_to_run_public(session).model_dump()
+        pub = _session_to_run_public(session).model_dump()
+        completion = (session.get("metadata") or {}).get("completion")
+        if completion:
+            pub["completion"] = completion
+            pub["records_captured"] = completion.get("records_captured", pub.get("records_captured", 0))
+        return pub
 
     def heartbeat(self, run_id: str) -> None:
         self.bridge.heartbeat(run_id)

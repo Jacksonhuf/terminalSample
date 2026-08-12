@@ -6,6 +6,59 @@ export async function mount(container, params, ctx) {
   let editingConnector = null;
     let editingCredential = null;
 
+    function updateConnectorModeButtons() {
+      const mode = document.getElementById('c-mode')?.value || 'computer_use';
+      const isBrowser = mode === 'browser_extension';
+      const isFile = mode === 'file';
+      const showCu = !isBrowser && !isFile;
+      const taskBtn = document.getElementById('c-task-btn');
+      const runBtn = document.getElementById('c-run-btn');
+      const mockBtn = document.getElementById('c-mock-run-btn');
+      const browserBtn = document.getElementById('c-browser-run-btn');
+      const viewBtn = document.getElementById('c-view-staging-btn');
+      if (taskBtn) taskBtn.style.display = showCu ? '' : 'none';
+      if (runBtn) runBtn.style.display = showCu ? '' : 'none';
+      if (mockBtn) mockBtn.style.display = showCu ? '' : 'none';
+      if (browserBtn) browserBtn.style.display = isBrowser ? '' : 'none';
+      if (viewBtn) viewBtn.style.display = isBrowser ? '' : 'none';
+    }
+
+    function viewStagingData() {
+      navigate('/admin/integration/mappings/discover');
+    }
+
+    function connectorCaptureButtons(c) {
+      if (c.mode === 'browser_extension') {
+        return `
+          <button class="btn btn-primary btn-sm" onclick="runBrowserExtensionByName('${escAttr(c.name)}')">Extension 采集</button>
+          <button class="btn btn-secondary btn-sm" onclick="viewStagingData()">查看数据</button>`;
+      }
+      return `<button class="btn btn-primary btn-sm" onclick="runCaptureByName('${escAttr(c.name)}', true)">采集</button>`;
+    }
+
+    async function pollBrowserRun(runId, { timeoutMs = 120000, intervalMs = 1500 } = {}) {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const run = await api(`/browser/runs/${runId}`);
+        if (run.status === 'completed') return run;
+        if (run.status === 'failed') {
+          throw new Error(run.error || 'Extension 采集失败');
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+      throw new Error('Extension 采集超时：请确认 Chrome 扩展已安装、Bridge URL 与 Admin 一致，且扩展正在轮询平台');
+    }
+
+    function formatExtensionCaptureMessage(run) {
+      const completion = run.completion || {};
+      const captured = run.records_captured || completion.records_captured || 0;
+      const synced = completion.records_synced || 0;
+      const parts = [`Extension 采集完成：${captured} 条已写入连接器暂存区`];
+      if (synced > 0) parts.push(`，${synced} 条已同步到 Ontology`);
+      parts.push('。请在「数据集成 → 映射 · 浏览」查看。');
+      return { captured, synced, message: parts.join('') };
+    }
+
     function switchTab(name) {
       document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -64,8 +117,7 @@ export async function mount(container, params, ctx) {
                 <td>${escHtml(c.source_url || c.source_file || '')}</td>
                 <td>${escHtml(c.credential_ref || '-')}</td>
                 <td>
-                  <button class="btn btn-primary btn-sm" onclick="runCaptureByName('${escAttr(c.name)}', true)">采集</button>
-                  ${c.mode === 'browser_extension' ? `<button class="btn btn-secondary btn-sm" onclick="runBrowserExtensionByName('${escAttr(c.name)}')">Extension</button>` : ''}
+                  ${connectorCaptureButtons(c)}
                   <button class="btn btn-secondary btn-sm" onclick='editConnector(${JSON.stringify(c).replace(/'/g, "&#39;")})'>编辑</button>
                   <button class="btn btn-secondary btn-sm" onclick="deleteConnector('${escHtml(c.name)}')">删除</button>
                 </td>
@@ -93,6 +145,7 @@ export async function mount(container, params, ctx) {
       document.getElementById('task-output').style.display = 'none';
       document.getElementById('connector-form').style.display = 'block';
       document.getElementById('c-name').disabled = false;
+      updateConnectorModeButtons();
     }
 
     function hideConnectorForm() {
@@ -116,6 +169,7 @@ export async function mount(container, params, ctx) {
       document.getElementById('c-schedule-auto-sync').checked = sched.auto_sync !== false;
       document.getElementById('task-output').style.display = 'none';
       document.getElementById('connector-form').style.display = 'block';
+      updateConnectorModeButtons();
     }
 
     async function saveConnector() {
@@ -183,10 +237,25 @@ export async function mount(container, params, ctx) {
     async function runCapture(mock) {
       const name = document.getElementById('c-name').value.trim();
       if (!name) { toast('请先保存连接器', 'error'); return; }
+      const mode = document.getElementById('c-mode').value;
+      if (mode === 'browser_extension') {
+        await runBrowserExtensionByName(name);
+        return;
+      }
       await runCaptureByName(name, mock);
     }
 
     async function runCaptureByName(name, mock) {
+      try {
+        const connector = await api(`/connectors/${name}`);
+        if (connector.mode === 'browser_extension') {
+          await runBrowserExtensionByName(name);
+          return;
+        }
+      } catch (_) {
+        /* fall through to legacy capture */
+      }
+
       const label = mock ? '演示采集 (Mock)' : 'LLM 采集';
       if (!mock && !confirm(`确认对「${name}」执行${label}？需要已配置 LLM 与 playwright。`)) return;
       try {
@@ -215,17 +284,31 @@ export async function mount(container, params, ctx) {
 
     async function runBrowserExtensionByName(name) {
       try {
-        toast('已创建 Extension 采集任务，请确保 Chrome 扩展已连接平台…');
+        toast('已创建 Extension 采集任务，等待 Chrome 扩展执行…');
         const result = await api(`/connectors/${name}/browser-run`, {
           method: 'POST',
           body: JSON.stringify({ auto_sync: true }),
         });
+        const runId = result.run?.id;
+        if (!runId) throw new Error('未返回 Extension 任务 ID');
+
         const out = document.getElementById('task-output');
         if (out) {
           out.style.display = 'block';
           out.textContent = JSON.stringify(result, null, 2);
         }
-        toast(`Extension 任务已创建：${result.run?.id || ''}`);
+
+        const final = await pollBrowserRun(runId);
+        if (out) out.textContent = JSON.stringify(final, null, 2);
+
+        const { captured, synced, message } = formatExtensionCaptureMessage(final);
+        toast(message, captured > 0 ? 'success' : 'error');
+        if (captured > 0 && confirm(`${message}\n\n是否前往「映射 · 浏览」查看暂存数据？`)) {
+          navigate('/admin/integration/mappings/discover');
+        } else if (captured === 0) {
+          toast('未采集到记录：请检查扩展是否已连接、目标页面是否可访问', 'error');
+        }
+        loadConnectors();
       } catch (e) {
         toast(e.message, 'error');
       }
@@ -372,6 +455,6 @@ export async function mount(container, params, ctx) {
     loadStatus();
     switchTab(params.tab || 'connectors');
 
-  Object.assign(window, { rotatePassword, editConnector, deleteCredential, editCredential, switchTab, loadCredentialOptions, loadConnectors, saveConnector, hideConnectorForm, loadStatus, deleteConnector, loadCredentials, showConnectorForm, saveCredential, hideCredentialForm, showCredentialForm, generateTask, runCapture, runCaptureByName, runBrowserExtension, runBrowserExtensionByName });
-  return () => { delete window.deleteConnector; delete window.deleteCredential; delete window.editConnector; delete window.editCredential; delete window.generateTask; delete window.hideConnectorForm; delete window.hideCredentialForm; delete window.loadConnectors; delete window.loadCredentialOptions; delete window.loadCredentials; delete window.loadStatus; delete window.rotatePassword; delete window.runCapture; delete window.runCaptureByName; delete window.runBrowserExtension; delete window.runBrowserExtensionByName; delete window.saveConnector; delete window.saveCredential; delete window.showConnectorForm; delete window.showCredentialForm; delete window.switchTab; };
+  Object.assign(window, { rotatePassword, editConnector, deleteCredential, editCredential, switchTab, loadCredentialOptions, loadConnectors, saveConnector, hideConnectorForm, loadStatus, deleteConnector, loadCredentials, showConnectorForm, saveCredential, hideCredentialForm, showCredentialForm, generateTask, runCapture, runCaptureByName, runBrowserExtension, runBrowserExtensionByName, updateConnectorModeButtons, viewStagingData, pollBrowserRun });
+  return () => { delete window.deleteConnector; delete window.deleteCredential; delete window.editConnector; delete window.editCredential; delete window.generateTask; delete window.hideConnectorForm; delete window.hideCredentialForm; delete window.loadConnectors; delete window.loadCredentialOptions; delete window.loadCredentials; delete window.loadStatus; delete window.rotatePassword; delete window.runCapture; delete window.runCaptureByName; delete window.runBrowserExtension; delete window.runBrowserExtensionByName; delete window.saveConnector; delete window.saveCredential; delete window.showConnectorForm; delete window.showCredentialForm; delete window.switchTab; delete window.updateConnectorModeButtons; delete window.viewStagingData; delete window.pollBrowserRun; };
 }
