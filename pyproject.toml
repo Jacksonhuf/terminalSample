@@ -66,6 +66,7 @@ ontology-connector = "ontology_platform.connector.cli:main"
 ontology-outreach = "ontology_platform.integrations.cli:main"
 ontology-browser-bridge = "ontology_platform.browser_adapter.__main__:main"
 ontology-browser-client = "ontology_platform.browser_adapter.cli_client:main"
+ontology-browser-skill = "ontology_platform.browser_adapter.cli_skill:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ontology_platform"]
@@ -73,6 +74,7 @@ packages = ["src/ontology_platform"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/ontology_platform/admin/static" = "ontology_platform/admin/static"
 "src/ontology_platform/integrations/templates" = "ontology_platform/integrations/templates"
+"skills/ontology-browser" = "ontology_platform/browser_adapter/skill"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

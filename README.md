@@ -514,6 +514,22 @@ client.snapshot(sid)   # 需用户 Chrome 已装扩展并指向同一 Bridge
 
 Shell / 非 Python 智能体可直接调 REST：`POST $BROWSER_BRIDGE_URL/v1/browser/sessions`，详见上文 API 表。
 
+**作为 Agent Skill 安装（本机即服务器，无需远程 Bridge）**
+
+```bash
+pip install -e ".[browser]"
+# 一键：复制 SKILL.md 到 OpenClaw/Hermes，并在本机启动 Bridge
+ontology-browser-client install-skill --target openclaw   # 或 hermes / auto
+
+# 等价于 OpenClaw 从仓库路径安装：
+# openclaw skills install /path/to/terminalSample/skills/ontology-browser
+
+export BROWSER_BRIDGE_URL=http://127.0.0.1:9920   # 本机 Bridge，非远程中间件
+ontology-browser-client health
+```
+
+Skill 内指引 Agent 用 `ontology-browser-client` / Python SDK 调本机 Bridge；Chrome 扩展 Options 指向同一 URL。
+
 **快速验证**
 
 ```bash
@@ -546,7 +562,8 @@ python3 examples/agents/browser_agent_demo.py http://127.0.0.1:8080
 | scripted / interactive / async session | ✅ |
 | Python SDK（`BrowserAdapterClient`） | ✅ |
 | Ontology Connector ingest 集成 | ✅ |
-| MCP Server / Hermes SKILL 模板 | 待后续（可基于 SDK 封装） |
+| OpenClaw / Hermes Skill（本机 Bridge） | ✅ `skills/ontology-browser` + `ontology-browser-client install-skill` |
+| MCP Server 封装 | 待后续（可基于 SDK 封装） |
 | API Key 鉴权 / WebSocket | 待后续 |
 
 更多细节见 [extension/README.md](extension/README.md)。
