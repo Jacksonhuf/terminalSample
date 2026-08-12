@@ -67,6 +67,7 @@ ontology-outreach = "ontology_platform.integrations.cli:main"
 ontology-browser-bridge = "ontology_platform.browser_adapter.__main__:main"
 ontology-browser-client = "ontology_platform.browser_adapter.cli_client:main"
 ontology-browser-skill = "ontology_platform.browser_adapter.cli_skill:main"
+ontology-browser-quickstart = "ontology_platform.browser_adapter.cli_quickstart:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ontology_platform"]

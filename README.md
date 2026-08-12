@@ -518,14 +518,18 @@ Shell / 非 Python 智能体可直接调 REST：`POST $BROWSER_BRIDGE_URL/v1/bro
 
 ```bash
 pip install -e ".[browser]"
-# 一键：复制 SKILL.md 到 OpenClaw/Hermes，并在本机启动 Bridge
 ontology-browser-client install-skill --target openclaw   # 或 hermes / auto
+```
 
-# 等价于 OpenClaw 从仓库路径安装：
-# openclaw skills install /path/to/terminalSample/skills/ontology-browser
+**最快测试扩展能否采集（推荐）**
 
-export BROWSER_BRIDGE_URL=http://127.0.0.1:9920   # 本机 Bridge，非远程中间件
-ontology-browser-client health
+```bash
+# 一条命令：装依赖 + 起本机 Bridge + 打印扩展配置说明
+./scripts/browser-quickstart.sh
+
+# 扩展 Options 设好 Bridge URL 后，测采集
+ontology-browser-client test-capture
+# 或安装后立即测：./scripts/browser-quickstart.sh --test
 ```
 
 Skill 内指引 Agent 用 `ontology-browser-client` / Python SDK 调本机 Bridge；Chrome 扩展 Options 指向同一 URL。

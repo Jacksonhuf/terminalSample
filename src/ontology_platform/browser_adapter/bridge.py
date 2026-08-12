@@ -59,8 +59,17 @@ class BrowserBridge:
         }
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
+        row = self.store.get_row(session_id)
+        if row is None:
+            return None
         session = self.store.get_session(session_id)
-        return session.model_dump() if session else None
+        if session is None:
+            return None
+        data = session.model_dump()
+        collected = json.loads(row["collected_data_json"] or "[]")
+        if collected:
+            data["collected_data"] = collected
+        return data
 
     def list_pending(self, limit: int = 20) -> list[dict[str, Any]]:
         return [s.model_dump() for s in self.store.list_pending(limit)]
