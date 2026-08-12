@@ -402,8 +402,11 @@ Agent / Connector  →  BrowserBridge (/v1/browser)  →  SQLite (browser_sessio
 
 **安装扩展**：
 
-1. Chrome 打开 `chrome://extensions` → 开发者模式 → 「加载已解压的扩展程序」→ 选择仓库 `extension/` 目录
-2. 扩展选项中设置 Bridge 地址（默认 `http://127.0.0.1:8080`），API 版本选 **v1**
+1. **Release（推荐）**：从 [GitHub Releases](https://github.com/Jacksonhuf/terminalSample/releases) 下载 `browser-action-adapter-x.y.z.zip`，解压后加载
+2. **源码**：Chrome 打开 `chrome://extensions` → 开发者模式 → 「加载已解压的扩展程序」→ 选择仓库 `extension/` 目录
+3. 扩展选项中设置 Bridge 地址（默认 `http://127.0.0.1:8080`），API 版本选 **v1**
+
+维护者打包：`./scripts/build-extension.sh` → `dist/browser-action-adapter-<version>.zip`；发布 tag `browser-extension-v*` 触发 CI Release。
 
 **Ontology Connector 采集**：
 

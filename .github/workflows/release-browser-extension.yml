@@ -1,0 +1,74 @@
+name: Release Browser Extension
+
+on:
+  push:
+    tags:
+      - "browser-extension-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version label (optional, e.g. 0.1.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build extension zip
+        run: |
+          chmod +x scripts/build-extension.sh
+          ./scripts/build-extension.sh
+
+      - name: Read version from manifest
+        id: meta
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('extension/manifest.json'))['version'])")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "asset=browser-action-adapter-${VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Browser Action Adapter Chrome Extension v${{ steps.meta.outputs.version }}
+          body: |
+            ## Browser Action Adapter — Chrome Extension v${{ steps.meta.outputs.version }}
+
+            Generic browser execution endpoint for [Browser Bridge](/v1/browser) API.
+
+            ### Install
+
+            1. Download **`${{ steps.meta.outputs.asset }}`** below
+            2. Unzip to a folder
+            3. Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → select folder
+
+            Or load the repo `extension/` directory directly during development.
+
+            ### Configure
+
+            - Extension options → **Bridge URL**: your `ontology-admin` address (e.g. `http://127.0.0.1:8080`)
+            - **API version**: `v1` (recommended)
+
+            ### Requires
+
+            Browser Bridge service running (`ontology-admin` with `/v1/browser` routes).
+
+            See [extension/README.md](https://github.com/${{ github.repository }}/blob/main/extension/README.md).
+          files: dist/${{ steps.meta.outputs.asset }}
+          draft: false
+          prerelease: false
+
+      - name: Upload artifact (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-action-adapter-${{ steps.meta.outputs.version }}
+          path: dist/*.zip
