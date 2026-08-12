@@ -362,6 +362,17 @@ class BrowserBridge:
                 hook_result = self._on_complete(session_id, metadata, collected)
                 if hook_result:
                     result.update(hook_result)
+                    ingest = hook_result.get("ingest") or {}
+                    if ingest.get("run_id"):
+                        metadata["connector_run_id"] = ingest["run_id"]
+                    sync = hook_result.get("sync") or {}
+                    metadata["completion"] = {
+                        "message": hook_result.get("message", ""),
+                        "records_captured": hook_result.get("records", len(collected)),
+                        "records_synced": sync.get("synced", 0),
+                        "ingest": ingest,
+                        "sync": sync,
+                    }
             except Exception as exc:
                 self._fail_session(session_id, str(exc))
                 return str(exc)
@@ -370,6 +381,7 @@ class BrowserBridge:
             session_id,
             status="completed",
             finished_at=datetime.now(timezone.utc).isoformat(),
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
         )
         self._notify_step(session_id)
         return result.get("message", "completed")

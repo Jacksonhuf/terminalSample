@@ -709,6 +709,14 @@ def create_app(
         except FileNotFoundError:
             raise HTTPException(404, f"Connector not found: {name}")
 
+        connector = connector_mgr.load_connector(name)
+        if connector.mode.value == "browser_extension":
+            raise HTTPException(
+                400,
+                "browser_extension 连接器请使用「Extension 采集」，并确保 Chrome 扩展已连接平台。"
+                " 演示 Mock 采集仅适用于 computer_use。",
+            )
+
         chat_model = None
         if llm_store is not None and not body.mock:
             chat_model = build_chat_model_from_store(llm_store, credential_store)
