@@ -34,7 +34,7 @@ export async function mount(container, params, ctx) {
     async function loadCredentialOptions() {
       const select = document.getElementById('p-api-key-ref');
       const current = select.value;
-      select.innerHTML = '<option value="">（无 / 内网免鉴权）</option>';
+      select.innerHTML = '<option value="">（自动创建凭据 / 使用上方 API Key）</option>';
       try {
         const data = await api('/credentials');
         if (!data.configured) return;
@@ -75,9 +75,9 @@ export async function mount(container, params, ctx) {
                 <td>${escHtml(p.proxy_mode)}</td>
                 <td>${p.is_default ? '✓' : ''}</td>
                 <td>
-                  <button class="btn btn-secondary btn-sm" onclick="editProfile('${escHtml(p.id)}')">编辑</button>
-                  <button class="btn btn-secondary btn-sm" onclick="testProfileById('${escHtml(p.id)}')">测试</button>
-                  <button class="btn btn-secondary btn-sm" onclick="deleteProfile('${escHtml(p.id)}')">删除</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="edit" data-id="${escAttr(p.id)}">编辑</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="test" data-id="${escAttr(p.id)}">测试</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="delete" data-id="${escAttr(p.id)}">删除</button>
                 </td>
               </tr>`).join('')}
             </tbody>
@@ -85,7 +85,23 @@ export async function mount(container, params, ctx) {
       } catch (e) {
         document.getElementById('profiles-table').innerHTML = `<div class="empty-state card">${escHtml(e.message)}</div>`;
       }
+      bindProfileTableActions();
       loadStatus();
+    }
+
+    function bindProfileTableActions() {
+      const table = document.getElementById('profiles-table');
+      if (!table || table.dataset.bound === '1') return;
+      table.dataset.bound = '1';
+      table.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        if (action === 'edit') editProfile(id);
+        if (action === 'test') testProfileById(id);
+        if (action === 'delete') deleteProfile(id);
+      });
     }
 
     function showProfileForm() {
@@ -96,6 +112,7 @@ export async function mount(container, params, ctx) {
       document.getElementById('p-name').value = '';
       document.getElementById('p-model').value = '';
       document.getElementById('p-base-url').value = '';
+      document.getElementById('p-api-key').value = '';
       document.getElementById('p-api-key-ref').value = '';
       document.getElementById('p-planner-mode').value = 'auto';
       document.getElementById('p-proxy-mode').value = 'bypass';
@@ -120,6 +137,8 @@ export async function mount(container, params, ctx) {
       document.getElementById('p-provider').value = p.provider;
       document.getElementById('p-model').value = p.model;
       document.getElementById('p-base-url').value = p.base_url;
+      document.getElementById('p-api-key').value = '';
+      document.getElementById('p-api-key').placeholder = p.api_key_set ? '已配置（留空不修改）' : 'New API Token（sk-...）';
       document.getElementById('p-api-key-ref').value = p.api_key_ref || '';
       document.getElementById('p-planner-mode').value = p.planner_mode;
       document.getElementById('p-proxy-mode').value = p.proxy_mode;
@@ -137,6 +156,7 @@ export async function mount(container, params, ctx) {
         provider: document.getElementById('p-provider').value,
         model: document.getElementById('p-model').value.trim(),
         base_url: document.getElementById('p-base-url').value.trim(),
+        api_key: document.getElementById('p-api-key').value,
         api_key_ref: document.getElementById('p-api-key-ref').value,
         planner_mode: document.getElementById('p-planner-mode').value,
         proxy_mode: document.getElementById('p-proxy-mode').value,
@@ -172,6 +192,43 @@ export async function mount(container, params, ctx) {
       } catch (e) { toast(e.message, 'error'); }
     }
 
+    function setTestLoading(loading) {
+      const btn = document.getElementById('p-test-btn');
+      if (btn) {
+        btn.disabled = loading;
+        btn.textContent = loading ? '测试中...' : '测试连接';
+      }
+      document.querySelectorAll('button[onclick^="testProfileById"]').forEach((el) => {
+        el.disabled = loading;
+        if (!loading) el.textContent = '测试';
+        else if (el.textContent === '测试') el.textContent = '测试中...';
+      });
+    }
+
+    function showTestResult(resultOrMessage, success) {
+      const panel = document.getElementById('llm-test-result');
+      const out = document.getElementById('llm-test-output');
+      if (!panel || !out) return;
+      panel.style.display = 'block';
+      if (typeof resultOrMessage === 'string') {
+        out.textContent = resultOrMessage;
+      } else {
+        out.textContent = JSON.stringify(resultOrMessage, null, 2);
+      }
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const legacy = document.getElementById('test-output');
+      if (legacy) {
+        legacy.style.display = 'block';
+        legacy.textContent = out.textContent;
+      }
+      if (typeof success === 'boolean') {
+        toast(
+          typeof resultOrMessage === 'string' ? resultOrMessage : (resultOrMessage.message || '测试完成'),
+          success ? 'success' : 'error',
+        );
+      }
+    }
+
     async function testProfile() {
       const id = editingProfileId || document.getElementById('p-id').value.trim();
       if (!id) { toast('请先保存模型', 'error'); return; }
@@ -179,13 +236,37 @@ export async function mount(container, params, ctx) {
     }
 
     async function testProfileById(id) {
+      const timeoutSec = parseInt(document.getElementById('p-timeout')?.value || '60', 10) || 60;
+      setTestLoading(true);
+      showTestResult('步骤 1/2：检查网关连通性（/v1/models）...');
       try {
-        const result = await api(`/llm/profiles/${id}/test`, { method: 'POST' });
-        const out = document.getElementById('test-output');
-        out.style.display = 'block';
-        out.textContent = JSON.stringify(result, null, 2);
-        toast(result.success ? '连接成功' : result.message, result.success ? 'success' : 'error');
-      } catch (e) { toast(e.message, 'error'); }
+        const preflight = await api(`/llm/profiles/${id}/preflight`);
+        if (!preflight.success) {
+          showTestResult(preflight, false);
+          setTestLoading(false);
+          return;
+        }
+        showTestResult(`网关可达（${preflight.latency_ms}ms），步骤 2/2：调用模型 chat...`);
+      } catch (e) {
+        showTestResult({ success: false, message: `预检失败: ${e.message}` }, false);
+        setTestLoading(false);
+        return;
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), (timeoutSec + 15) * 1000);
+      try {
+        const result = await api(`/llm/profiles/${id}/test`, { method: 'POST', signal: controller.signal });
+        showTestResult(result, result.success);
+      } catch (e) {
+        const msg = e.name === 'AbortError'
+          ? `模型调用超时（>${timeoutSec} 秒），网关可达但 chat 接口无响应，请检查 Model 名称`
+          : e.message;
+        showTestResult({ success: false, message: msg }, false);
+      } finally {
+        clearTimeout(timer);
+        setTestLoading(false);
+      }
     }
 
     async function loadProxy() {

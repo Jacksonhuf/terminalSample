@@ -65,10 +65,13 @@ def build_httpx_proxy_url(proxy_cfg: ProxyConfig) -> str | None:
 
 def build_httpx_client_kwargs(profile: LlmProfile, proxy_cfg: ProxyConfig) -> dict:
     """Return kwargs for httpx.Client(proxy=..., trust_env=False)."""
+    import httpx
+
     use_proxy = resolve_proxy_used(profile, proxy_cfg)
     proxy_url = build_httpx_proxy_url(proxy_cfg) if use_proxy else None
+    timeout_sec = max(int(profile.timeout_sec or 60), 5)
     return {
         "proxy": proxy_url,
         "trust_env": False,
-        "timeout": profile.timeout_sec,
+        "timeout": httpx.Timeout(timeout_sec, connect=min(10.0, timeout_sec)),
     }
